@@ -37,11 +37,23 @@ function getStorage(key, fallback) {
   }
 }
 
+// ข้อมูลที่ซิงก์ขึ้นคลาวด์ (ไม่รวมธีม แท็บล่าสุด ฯลฯ ที่เป็นของแต่ละเครื่อง)
+const SYNCED_KEYS = new Set([
+  'schedules_data', 'tasks_data', 'study_stats', 'study_log', 'gpa_rows', 'gpa_sim',
+  'pomo_settings', 'exams_data', 'semesters_data', 'reminder_settings', 'calendar_settings',
+]);
+// sync.js จะมาแทนที่ฟังก์ชันนี้ เพื่อรู้ว่าข้อมูลเปลี่ยนแล้วต้องอัปโหลด
+let onLocalDataChange = () => {};
+let suppressChangeHook = false;
+
 function setStorage(key, data) {
   try {
     localStorage.setItem(key, JSON.stringify(data));
   } catch (err) {
     console.warn(`บันทึกข้อมูล "${key}" ไม่ได้`, err);
+  }
+  if (SYNCED_KEYS.has(key) && !suppressChangeHook) {
+    try { onLocalDataChange(); } catch (e) { console.warn(e); }
   }
 }
 
@@ -1410,12 +1422,38 @@ function useHistoryInSimulator() {
 // =====================================================================
 // Backup: export / import / clear
 // =====================================================================
+function collectData() {
+  return { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings };
+}
+
+// แทนที่ข้อมูลทั้งหมดด้วยข้อมูลชุดใหม่ (จากไฟล์สำรองหรือจากคลาวด์) แล้ววาดหน้าจอใหม่
+function applyData(d, { fromSync = false } = {}) {
+  schedules = sanitizeSchedules(d.schedules);
+  tasks = sanitizeTasks(d.tasks);
+  studyStats = sanitizeStats(d.studyStats);
+  gpaRows = sanitizeGpaRows(d.gpaRows);
+  gpaSim = sanitizeGpaSim(d.gpaSim);
+  pomo = sanitizePomo(d.pomo);
+  studyLog = sanitizeStudyLog(d.studyLog);
+  exams = sanitizeExams(d.exams);
+  semesters = sanitizeSemesters(d.semesters);
+  reminders = sanitizeReminders(d.reminders);
+  calSettings = sanitizeCalendarSettings(d.calSettings);
+  suppressChangeHook = fromSync;
+  try {
+    saveAllData();
+  } finally {
+    suppressChangeHook = false;
+  }
+  renderAll();
+}
+
 function exportData() {
   const payload = {
     app: 'StudyFlow',
     version: 3,
     exportedAt: new Date().toISOString(),
-    data: { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings },
+    data: collectData(),
   };
   downloadFile(JSON.stringify(payload, null, 2), `studyflow-backup-${todayStr()}.json`, 'application/json');
   toast('ส่งออกไฟล์สำรองแล้ว', 'success');
@@ -1445,20 +1483,7 @@ async function importData(input) {
       throw new Error('not a StudyFlow backup');
     }
     if (!confirm('ข้อมูลปัจจุบันจะถูกแทนที่ด้วยข้อมูลจากไฟล์นี้ ต้องการนำเข้าใช่ไหม?')) return;
-    const d = payload.data;
-    schedules = sanitizeSchedules(d.schedules);
-    tasks = sanitizeTasks(d.tasks);
-    studyStats = sanitizeStats(d.studyStats);
-    gpaRows = sanitizeGpaRows(d.gpaRows);
-    gpaSim = sanitizeGpaSim(d.gpaSim);
-    pomo = sanitizePomo(d.pomo);
-    studyLog = sanitizeStudyLog(d.studyLog);
-    exams = sanitizeExams(d.exams);
-    semesters = sanitizeSemesters(d.semesters);
-    reminders = sanitizeReminders(d.reminders);
-    calSettings = sanitizeCalendarSettings(d.calSettings);
-    saveAllData();
-    renderAll();
+    applyData(payload.data);
     closeModal('settings-modal');
     toast('นำเข้าข้อมูลเรียบร้อย', 'success');
   } catch (err) {
@@ -1468,7 +1493,7 @@ async function importData(input) {
 }
 
 function clearAllData() {
-  if (!confirm('ลบข้อมูลทั้งหมด (ตารางเรียน งาน สถิติ เกรด) ใช่ไหม? แนะนำให้ส่งออกไฟล์สำรองก่อน')) return;
+  if (!confirm('ลบข้อมูลทั้งหมด (ตารางเรียน งาน สถิติ เกรด) ใช่ไหม? ถ้าล็อกอินซิงก์อยู่ ข้อมูลบนคลาวด์จะถูกล้างด้วย แนะนำให้ส่งออกไฟล์สำรองก่อน')) return;
   schedules = [];
   tasks = [];
   studyStats = {};

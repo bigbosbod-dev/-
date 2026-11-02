@@ -85,8 +85,9 @@
           <i data-lucide="moon" class="w-5 h-5 dark:hidden"></i>
           <i data-lucide="sun" class="w-5 h-5 hidden dark:block"></i>
         </button>
-        <button onclick="openModal('settings-modal')" class="icon-btn" aria-label="ตั้งค่า" title="ตั้งค่าและสำรองข้อมูล">
+        <button onclick="openModal('settings-modal')" class="icon-btn relative" aria-label="ตั้งค่า" title="ตั้งค่า ซิงก์ และสำรองข้อมูล">
           <i data-lucide="settings" class="w-5 h-5"></i>
+          <span class="sync-dot hidden absolute top-1.5 right-1.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-slate-900"></span>
         </button>
       </div>
     </div>
@@ -497,6 +498,38 @@
         <button onclick="closeModal('settings-modal')" class="icon-btn" aria-label="ปิด"><i data-lucide="x" class="w-5 h-5"></i></button>
       </div>
 
+      <!-- ซิงก์ข้ามเครื่อง -->
+      <div class="space-y-3 p-4 rounded-xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-500/5">
+        <h4 class="text-sm font-semibold heading flex items-center gap-2"><i data-lucide="cloud" class="w-4 h-4 text-indigo-500"></i> ซิงก์ข้อมูลข้ามเครื่อง</h4>
+
+        <p id="sync-unavailable" class="hidden text-xs muted">ตอนนี้เชื่อมต่อระบบซิงก์ไม่ได้ (อาจไม่มีอินเทอร์เน็ต) ลองเปิดแอปใหม่อีกครั้งเมื่อออนไลน์</p>
+
+        <div id="sync-signed-out" class="hidden space-y-2">
+          <p class="text-xs muted">ล็อกอินด้วยอีเมลเดียวกันทุกเครื่อง ข้อมูลจะตรงกันทั้งมือถือและคอม ไม่ต้องตั้งรหัสผ่าน</p>
+          <div class="flex gap-2">
+            <input id="sync-email-input" type="email" autocomplete="email" inputmode="email" placeholder="อีเมลของคุณ" class="input" onkeydown="if (event.key === 'Enter') sendLoginEmail()" />
+            <button id="sync-send-btn" onclick="sendLoginEmail()" class="btn-primary !py-2 text-sm whitespace-nowrap">ส่งอีเมล</button>
+          </div>
+          <div id="sync-code-step" class="hidden space-y-2 pt-1">
+            <p class="text-xs text-slate-700 dark:text-slate-300">ส่งอีเมลไปที่ <b id="sync-sent-to"></b> แล้ว แตะลิงก์ในอีเมลเพื่อเข้าสู่ระบบ หรือถ้าในอีเมลมีรหัสตัวเลข กรอกตรงนี้ได้เลย</p>
+            <div class="flex gap-2">
+              <input id="sync-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="รหัสจากอีเมล" class="input tracking-widest" onkeydown="if (event.key === 'Enter') verifyLoginCode()" />
+              <button onclick="verifyLoginCode()" class="btn-secondary !py-2 text-sm whitespace-nowrap">ยืนยัน</button>
+            </div>
+            <p class="text-[11px] muted">💡 ถ้าใช้แบบติดตั้งเป็นแอปบน iPhone ให้ใช้รหัสตัวเลข เพราะลิงก์จะเปิดใน Safari แทนที่จะเปิดในแอป · ไม่เจออีเมล ลองดูในโฟลเดอร์จดหมายขยะ · <button onclick="cancelLoginCode()" class="underline">เปลี่ยนอีเมล</button></p>
+          </div>
+        </div>
+
+        <div id="sync-signed-in" class="hidden space-y-2">
+          <div class="text-xs muted">ล็อกอินเป็น <b id="sync-email" class="heading"></b></div>
+          <div id="sync-status" class="text-xs text-slate-700 dark:text-slate-300"></div>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="syncNow({ manual: true })" class="btn-secondary text-sm !py-2"><i data-lucide="refresh-cw" class="w-4 h-4"></i> ซิงก์ตอนนี้</button>
+            <button onclick="signOutSync()" class="btn-ghost text-sm">ออกจากระบบ</button>
+          </div>
+        </div>
+      </div>
+
       <div class="space-y-2">
         <h4 class="text-sm font-semibold heading">ธีม</h4>
         <div class="flex gap-2">
@@ -545,10 +578,12 @@
         <p id="installed-note" class="text-xs text-emerald-600 dark:text-emerald-400 hidden">✓ กำลังใช้งานแบบแอปอยู่ ใช้งานได้แม้ไม่มีอินเทอร์เน็ต</p>
       </div>
 
-      <p class="text-[11px] text-center muted">StudyFlow v3</p>
+      <p class="text-[11px] text-center muted">StudyFlow v4</p>
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/sync.js"></script>
 </body>
 </html>

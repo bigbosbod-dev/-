@@ -1,12 +1,13 @@
 // Service worker ของ StudyFlow: ทำให้เปิดแอปได้แม้ไม่มีอินเทอร์เน็ต
 // เมื่อแก้ไฟล์ของแอป ให้เปลี่ยนเลขเวอร์ชันนี้ เพื่อให้แคชเก่าถูกล้าง
-const CACHE = 'studyflow-v4';
+const CACHE = 'studyflow-v5';
 
 const APP_SHELL = [
   './',
   'index.html',
   'css/style.css',
   'js/app.js',
+  'js/sync.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',
@@ -18,6 +19,7 @@ const APP_SHELL = [
 const CDN_ASSETS = [
   'https://cdn.tailwindcss.com/3.4.16',
   'https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -46,6 +48,8 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
+  // คำขอไปยังเซิร์ฟเวอร์ซิงก์ (Supabase) ต้องไปถึงเซิร์ฟเวอร์จริงเสมอ ห้ามใช้แคช
+  if (url.hostname.endsWith('.supabase.co')) return;
 
   if (url.origin === self.location.origin) {
     // ไฟล์ของแอป: ใช้เวอร์ชันล่าสุดจากเน็ตก่อน ถ้าออฟไลน์ค่อยใช้จากแคช
