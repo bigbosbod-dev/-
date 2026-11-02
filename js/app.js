@@ -1688,7 +1688,7 @@ function renderSubjectSheet() {
     <div class="flex items-center justify-between gap-2 py-2">
       <span class="text-xs heading whitespace-nowrap">${formatThaiDate(d)}${d === todayStr() ? ' <span class="muted">(วันนี้)</span>' : ''}</span>
       <div class="flex gap-1">${attendanceButtonsHtml(sched.id, d)}</div>
-    </div>`).join('') : '<p class="text-xs muted py-2">ยังไม่ถึงวันเรียนวันแรกของวิชานี้ (ตั้งวันเปิดเทอมได้ด้านล่าง)</p>';
+    </div>`).join('') : '<p class="text-xs muted py-2">ยังไม่มีคาบที่ผ่านมาให้เช็กชื่อ ถ้าเปิดเทอมมาแล้ว กดปุ่ม "ตั้งวันเปิดเทอม" ด้านล่างเพื่อย้อนเช็กสัปดาห์ก่อน ๆ</p>';
 
   const info = infoFor(sched.name);
   $('sheet-links').innerHTML = info.links.length ? info.links.map((l, i) => `

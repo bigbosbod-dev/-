@@ -481,7 +481,7 @@
         <div id="sheet-attend-list" class="divide-y divide-slate-100 dark:divide-slate-800 max-h-64 overflow-y-auto"></div>
         <p class="text-[11px] muted">แตะสถานะซ้ำเพื่อยกเลิก · "ลา" และ "ขาด" นับเป็นไม่ได้เข้าเรียน</p>
         <details class="text-xs">
-          <summary class="cursor-pointer muted">ตั้งค่าเกณฑ์การเข้าเรียน</summary>
+          <summary class="cursor-pointer select-none inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-indigo-600 dark:text-indigo-300 font-medium hover:bg-slate-100 dark:hover:bg-slate-800"><i data-lucide="settings-2" class="w-3.5 h-3.5"></i> ตั้งวันเปิดเทอม / เกณฑ์การเข้าเรียน</summary>
           <div class="grid grid-cols-3 gap-2 mt-2">
             <label class="space-y-1"><span class="muted block">เปิดเทอมวันที่</span><input id="attend-start" type="date" class="input !py-1" onchange="saveAttendSettings()" /></label>
             <label class="space-y-1"><span class="muted block">จำนวนสัปดาห์</span><input id="attend-weeks" type="number" min="1" max="30" class="input !py-1" onchange="saveAttendSettings()" /></label>
