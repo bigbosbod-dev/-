@@ -453,7 +453,8 @@
         </div>
         <div>
           <label class="label" for="task-subject">วิชา</label>
-          <input type="text" id="task-subject" list="subject-list" class="input" placeholder="เช่น SE 101" />
+          <input type="text" id="task-subject" list="subject-list" class="input" placeholder="แตะเลือกวิชาด้านล่าง หรือพิมพ์เอง" oninput="renderTaskSubjectChips()" />
+          <div id="task-subject-chips" class="flex flex-wrap gap-1.5 mt-2"></div>
         </div>
         <div>
           <label class="label" for="task-due">กำหนดส่ง</label>

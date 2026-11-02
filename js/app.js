@@ -1041,7 +1041,32 @@ function openTaskModal(id = null) {
   $('task-title').value = task ? task.title : '';
   $('task-subject').value = task ? task.subject : '';
   $('task-due').value = task ? task.due : '';
+  renderTaskSubjectChips();
   openModal('task-modal');
+}
+
+// ปุ่มเลือกวิชาจากตารางเรียน (แตะแทนการพิมพ์)
+let taskSubjectOptions = [];
+
+function renderTaskSubjectChips() {
+  taskSubjectOptions = [...new Set(schedules.map((x) => x.name))].sort((a, b) => a.localeCompare(b, 'th'));
+  taskSubjectOptions.push('ทั่วไป');
+  const current = subjectKey($('task-subject').value);
+  $('task-subject-chips').innerHTML = taskSubjectOptions.map((name, i) => {
+    const on = subjectKey(name) === current;
+    return `<button type="button" onclick="pickTaskSubject(${i})" title="${escapeHtml(name)}"
+      class="max-w-full inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs border transition ${on
+        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200'
+        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}">
+      ${subjDot(name, subjectColors, false)}<span class="truncate">${escapeHtml(name)}</span></button>`;
+  }).join('');
+}
+
+function pickTaskSubject(i) {
+  const name = taskSubjectOptions[i];
+  if (name === undefined) return;
+  $('task-subject').value = name;
+  renderTaskSubjectChips();
 }
 
 function saveTask() {
