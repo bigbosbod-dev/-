@@ -616,7 +616,11 @@
           <span>เตือนงานที่ต้องส่งวันนี้/พรุ่งนี้ (วันละครั้ง)</span>
           <input id="rem-task" type="checkbox" class="w-5 h-5 accent-indigo-600" onchange="saveReminderSettings(true)" />
         </label>
-        <p class="text-xs muted leading-relaxed">⚠️ เว็บแอปเตือนได้เฉพาะตอนที่เปิดแอปค้างไว้ ถ้าอยากให้เตือนแม้ปิดแอป ให้กด <b>"ส่งเข้าปฏิทิน"</b> ในหน้าตารางเรียน แอปปฏิทินของมือถือจะเตือนให้เอง</p>
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2">
+          <div class="text-sm font-medium heading flex items-center gap-2"><i data-lucide="bell-ring" class="w-4 h-4 text-indigo-500"></i> แจ้งเตือนแม้ปิดแอป</div>
+          <p id="push-status" class="text-xs muted leading-relaxed"></p>
+          <div id="push-actions" class="grid grid-cols-2 gap-2"></div>
+        </div>
       </div>
 
       <div class="space-y-2">

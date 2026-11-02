@@ -71,6 +71,7 @@ function renderSyncUI() {
     else status = 'ยังไม่ได้ซิงก์';
     $('sync-status').textContent = status;
   }
+  renderPushUI();
   document.querySelectorAll('.sync-dot').forEach((el) => {
     el.classList.toggle('hidden', !currentUser);
     el.classList.toggle('bg-emerald-500', !!currentUser && !lastSyncError && !meta.dirty);
@@ -178,6 +179,7 @@ async function promptNewPassword() {
 async function signOutSync() {
   if (!sb) return;
   if (!confirm('ออกจากระบบซิงก์ใช่ไหม? ข้อมูลในเครื่องนี้ยังอยู่ครบ')) return;
+  if (getStorage(PUSH_FLAG, false) === true) await disablePush();
   await sb.auth.signOut();
   toast('ออกจากระบบแล้ว ข้อมูลในเครื่องยังอยู่');
 }
@@ -432,6 +434,123 @@ function closeSharedView() {
   $('shared-view').classList.add('hidden');
   document.body.style.overflow = '';
   history.replaceState(null, '', location.pathname);
+}
+
+// ---------- แจ้งเตือนแม้ปิดแอป (Web Push ผ่าน Supabase) ----------
+const PUSH_FLAG = 'push_enabled';
+let pushBusy = false;
+
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function urlBase64ToUint8Array(base64) {
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function currentPushSubscription() {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+
+async function callPushFunction(body) {
+  const { data, error } = await sb.functions.invoke('push-reminders', { body });
+  if (error) throw error;
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+
+async function renderPushUI() {
+  const status = $('push-status');
+  const actions = $('push-actions');
+  if (!status) return;
+  const btn = (label, fn, primary) => `<button onclick="${fn}" ${pushBusy ? 'disabled' : ''} class="${primary ? 'btn-primary' : 'btn-secondary'} text-sm !py-2">${label}</button>`;
+
+  if (!pushSupported()) {
+    status.innerHTML = isIOS()
+      ? 'บน iPhone ต้อง<b>ติดตั้งเป็นแอปบนหน้าจอโฮม</b>ก่อน (Safari → แชร์ → เพิ่มไปยังหน้าจอโฮม) แล้วเปิดจากไอคอนแอป'
+      : 'เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือนแบบนี้ ลองใช้ Chrome, Edge หรือ Safari เวอร์ชันใหม่';
+    actions.innerHTML = '';
+    return;
+  }
+  if (!currentUser) {
+    status.textContent = 'ต้องล็อกอินซิงก์ก่อน เพราะเซิร์ฟเวอร์ต้องรู้ตารางเรียนและงานของคุณถึงจะเตือนได้';
+    actions.innerHTML = '';
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    status.textContent = '🔕 การแจ้งเตือนถูกปิดไว้ เปิดได้ที่การตั้งค่าของเครื่อง → การแจ้งเตือน → StudyFlow';
+    actions.innerHTML = '';
+    return;
+  }
+  const sub = await currentPushSubscription();
+  const on = !!sub && getStorage(PUSH_FLAG, false) === true;
+  if (on) {
+    status.textContent = '🔔 เปิดอยู่: เซิร์ฟเวอร์จะเตือนก่อนเข้าเรียน งานใกล้ส่ง และวันสอบ แม้ปิดแอป (ใช้การตั้งค่าเตือนด้านบน)';
+    actions.innerHTML = btn('ส่งทดสอบ', 'testPush()', true) + btn('ปิด', 'disablePush()', false);
+  } else {
+    status.textContent = 'ให้เซิร์ฟเวอร์ส่งแจ้งเตือนมาที่เครื่องนี้ แม้ปิดแอปหรือล็อกจออยู่';
+    actions.innerHTML = btn('เปิดการแจ้งเตือน', 'enablePush()', true);
+  }
+}
+
+async function enablePush() {
+  if (!sb || !currentUser || pushBusy) return;
+  pushBusy = true;
+  renderPushUI();
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error('ไม่ได้รับอนุญาตให้แจ้งเตือน');
+    const { publicKey } = await callPushFunction({ action: 'public-key' });
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+    await callPushFunction({
+      action: 'subscribe',
+      subscription: sub.toJSON(),
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Bangkok',
+    });
+    try { localStorage.setItem(PUSH_FLAG, 'true'); } catch (e) { /* ignore */ }
+    // ให้เซิร์ฟเวอร์มีข้อมูลล่าสุดไว้ใช้เตือน
+    syncNow();
+    toast('เปิดแจ้งเตือนแม้ปิดแอปแล้ว ลองกด "ส่งทดสอบ" ดูได้', 'success', 5000);
+  } catch (err) {
+    toast(`เปิดแจ้งเตือนไม่สำเร็จ: ${err.message || err}`, 'error', 7000);
+  } finally {
+    pushBusy = false;
+    renderPushUI();
+  }
+}
+
+async function disablePush() {
+  if (pushBusy) return;
+  pushBusy = true;
+  try {
+    const sub = await currentPushSubscription();
+    if (sub) {
+      if (sb && currentUser) await callPushFunction({ action: 'unsubscribe', endpoint: sub.endpoint }).catch(() => {});
+      await sub.unsubscribe();
+    }
+    try { localStorage.removeItem(PUSH_FLAG); } catch (e) { /* ignore */ }
+    toast('ปิดแจ้งเตือนแม้ปิดแอปแล้ว (ยังเตือนในแอปขณะเปิดอยู่)');
+  } finally {
+    pushBusy = false;
+    renderPushUI();
+  }
+}
+
+async function testPush() {
+  if (!sb || !currentUser) return;
+  try {
+    const r = await callPushFunction({ action: 'test' });
+    if (!r.devices) toast('ยังไม่มีเครื่องที่เปิดแจ้งเตือนไว้', 'error');
+    else if (!r.sent) toast('ส่งไม่สำเร็จ ลองกด "ปิด" แล้ว "เปิดการแจ้งเตือน" ใหม่', 'error', 6000);
+    else toast(`ส่งแล้ว (${r.sent} เครื่อง) ถ้าเปิดแอปอยู่ อาจต้องปัดลงดูศูนย์แจ้งเตือน`, 'success', 6000);
+  } catch (err) {
+    toast(`ส่งทดสอบไม่สำเร็จ: ${err.message || err}`, 'error', 6000);
+  }
 }
 
 // ---------- Init ----------

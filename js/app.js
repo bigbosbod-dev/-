@@ -1273,6 +1273,8 @@ function alreadyNotified(key) {
 }
 
 function checkReminders() {
+  // ถ้าเครื่องนี้เปิดแจ้งเตือนผ่านเซิร์ฟเวอร์แล้ว ให้เซิร์ฟเวอร์เตือนอย่างเดียว จะได้ไม่เด้งซ้ำ
+  if (getStorage('push_enabled', false) === true) return;
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
 

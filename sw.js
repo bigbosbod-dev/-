@@ -1,6 +1,6 @@
 // Service worker ของ StudyFlow: ทำให้เปิดแอปได้แม้ไม่มีอินเทอร์เน็ต
 // เมื่อแก้ไฟล์ของแอป ให้เปลี่ยนเลขเวอร์ชันนี้ เพื่อให้แคชเก่าถูกล้าง
-const CACHE = 'studyflow-v9';
+const CACHE = 'studyflow-v10';
 
 const APP_SHELL = [
   './',
@@ -79,6 +79,19 @@ self.addEventListener('fetch', (event) => {
     if (res.ok || res.type === 'opaque') cache.put(request, res.clone());
     return res;
   })());
+});
+
+// ได้รับแจ้งเตือนจากเซิร์ฟเวอร์ (ทำงานแม้ปิดแอป)
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data && event.data.text() }; }
+  event.waitUntil(self.registration.showNotification(data.title || 'StudyFlow', {
+    body: data.body || '',
+    tag: data.tag || 'studyflow',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    data: { url: data.url || './' },
+  }));
 });
 
 // แตะที่การแจ้งเตือน → เปิดแอปขึ้นมา
