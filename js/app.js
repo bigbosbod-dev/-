@@ -563,45 +563,62 @@ function getNextClass(now = new Date()) {
   return null;
 }
 
+// แถบด้านบนของหน้าตาราง: เด่นเฉพาะตอนที่มีเรียนวันนี้ ถ้าวันนี้ไม่มีเรียน/เรียนครบแล้ว ให้บอกตรง ๆ และเป็นการ์ดสีเรียบ
+const BANNER_LOUD = 'rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md';
+const BANNER_CALM = 'rounded-2xl p-4 sm:p-5 card';
+
 function renderNextClass() {
   const box = $('next-class');
   const next = getNextClass();
+  const loud = !!next && (next.status === 'now' || next.status === 'today');
+  box.className = loud ? BANNER_LOUD : BANNER_CALM;
+  const sub = loud ? 'text-indigo-100' : 'muted';
+
   const exam = upcomingExams()[0];
   const examDays = exam ? daysUntil(exam.date) : null;
   const examLine = exam && examDays <= 14
-    ? `<div class="mt-3 pt-3 border-t border-white/20 text-sm flex items-center gap-2"><i data-lucide="notebook-pen" class="w-4 h-4 shrink-0"></i>
+    ? `<div class="mt-3 pt-3 border-t ${loud ? 'border-white/20' : 'border-slate-200 dark:border-slate-800'} text-sm flex items-center gap-2"><i data-lucide="notebook-pen" class="w-4 h-4 shrink-0 ${loud ? '' : 'text-indigo-500'}"></i>
         <span class="truncate">${escapeHtml(examTitle(exam))} · <b>${examDays === 0 ? 'วันนี้!' : examDays === 1 ? 'พรุ่งนี้' : `อีก ${examDays} วัน`}</b></span></div>`
     : '';
+
   if (!next) {
-    box.innerHTML = `<div class="flex items-center gap-3"><i data-lucide="calendar-plus" class="w-6 h-6 shrink-0"></i>
-      <div><div class="font-semibold">ยังไม่มีคาบเรียน</div><div class="text-sm text-indigo-100">กด "เพิ่มคาบเรียน" เพื่อเริ่มสร้างตารางเรียนของคุณ</div></div></div>${examLine}`;
+    box.innerHTML = `<div class="flex items-center gap-3"><i data-lucide="calendar-plus" class="w-6 h-6 shrink-0 text-indigo-500"></i>
+      <div><div class="font-semibold heading">ยังไม่มีคาบเรียน</div><div class="text-sm muted">กด "เพิ่มคาบเรียน" เพื่อเริ่มสร้างตารางเรียนของคุณ</div></div></div>${examLine}`;
     refreshIcons();
     return;
   }
+
   const { s, status } = next;
   const room = s.room ? ` · ห้อง ${escapeHtml(s.room)}` : '';
-  let label;
-  let when;
-  if (status === 'now') {
-    label = 'กำลังเรียนอยู่';
-    when = `เลิก ${escapeHtml(s.end)} (อีก ${formatDuration(next.minutes)})`;
-  } else if (status === 'today') {
-    label = 'คาบถัดไป · วันนี้';
-    when = `เริ่ม ${escapeHtml(s.start)} (อีก ${formatDuration(next.minutes)})`;
-  } else if (status === 'tomorrow') {
-    label = 'คาบถัดไป · พรุ่งนี้';
-    when = `${escapeHtml(s.start)} - ${escapeHtml(s.end)}`;
-  } else {
-    label = `คาบถัดไป · วัน${DAYS[next.dayIdx]}`;
-    when = `${escapeHtml(s.start)} - ${escapeHtml(s.end)}`;
+
+  if (loud) {
+    const label = status === 'now' ? 'กำลังเรียนอยู่' : 'คาบถัดไป · วันนี้';
+    const when = status === 'now'
+      ? `เลิก ${escapeHtml(s.end)} (อีก ${formatDuration(next.minutes)})`
+      : `เริ่ม ${escapeHtml(s.start)} (อีก ${formatDuration(next.minutes)})`;
+    box.innerHTML = `
+      <div class="flex items-center gap-3">
+        <div class="bg-white/15 p-2.5 rounded-xl shrink-0"><i data-lucide="${status === 'now' ? 'book-open' : 'bell'}" class="w-6 h-6"></i></div>
+        <div class="min-w-0">
+          <div class="text-xs tracking-wide ${sub}">${label}</div>
+          <div class="font-semibold text-lg truncate">${escapeHtml(s.name)}</div>
+          <div class="text-sm ${sub}">${when}${room}</div>
+        </div>
+      </div>${examLine}`;
+    refreshIcons();
+    return;
   }
+
+  // วันนี้ไม่มีเรียน หรือเรียนครบแล้ว
+  const hadClassToday = schedules.some((x) => x.day === DAYS[todayIndex()]);
+  const headline = hadClassToday ? 'วันนี้เรียนครบแล้ว ✅' : 'วันนี้ไม่มีเรียน 🎉';
+  const whenDay = status === 'tomorrow' ? `พรุ่งนี้ (${DAYS[next.dayIdx]})` : `วัน${DAYS[next.dayIdx]}`;
   box.innerHTML = `
     <div class="flex items-center gap-3">
-      <div class="bg-white/15 p-2.5 rounded-xl shrink-0"><i data-lucide="${status === 'now' ? 'book-open' : 'bell'}" class="w-6 h-6"></i></div>
+      <div class="bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 p-2.5 rounded-xl shrink-0"><i data-lucide="${hadClassToday ? 'circle-check' : 'coffee'}" class="w-6 h-6"></i></div>
       <div class="min-w-0">
-        <div class="text-xs tracking-wide text-indigo-100">${label}</div>
-        <div class="font-semibold text-lg truncate">${escapeHtml(s.name)}</div>
-        <div class="text-sm text-indigo-100">${when}${room}</div>
+        <div class="font-semibold text-lg heading">${headline}</div>
+        <div class="text-sm muted">คาบถัดไป: <b class="heading">${whenDay} ${escapeHtml(s.start)}</b> · ${escapeHtml(s.name)}${room}</div>
       </div>
     </div>${examLine}`;
   refreshIcons();
