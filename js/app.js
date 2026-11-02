@@ -120,6 +120,43 @@ function toast(message, type = 'info', ms = 3000) {
   }, ms);
 }
 
+// ---------- แอนิเมชัน ----------
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+let lastPointer = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+document.addEventListener('pointerdown', (e) => { lastPointer = { x: e.clientX, y: e.clientY }; }, true);
+
+// พลุกระดาษเล็ก ๆ จากจุดที่แตะล่าสุด (หรือกลางจอ)
+function confetti({ x = lastPointer.x, y = lastPointer.y, count = 18, spread = 1 } = {}) {
+  if (reduceMotion.matches) return;
+  const colors = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#6250d6'];
+  const layer = document.createElement('div');
+  layer.className = 'confetti-layer';
+  for (let i = 0; i < count; i++) {
+    const piece = document.createElement('span');
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.6;
+    const dist = (60 + Math.random() * 70) * spread;
+    piece.className = 'confetti';
+    piece.style.left = `${x}px`;
+    piece.style.top = `${y}px`;
+    piece.style.background = colors[i % colors.length];
+    piece.style.setProperty('--dx', `${Math.cos(angle) * dist}px`);
+    piece.style.setProperty('--dy', `${Math.sin(angle) * dist - 40}px`);
+    piece.style.setProperty('--rot', `${Math.random() * 720 - 360}deg`);
+    piece.style.animationDelay = `${Math.random() * 60}ms`;
+    layer.appendChild(piece);
+  }
+  document.body.appendChild(layer);
+  setTimeout(() => layer.remove(), 1200);
+}
+
+// ให้เนื้อหาในแท็บค่อย ๆ ลอยขึ้นมาเมื่อสลับแท็บ
+function animateIn(el) {
+  if (!el || reduceMotion.matches) return;
+  el.classList.remove('tab-enter');
+  void el.offsetWidth; // เริ่มแอนิเมชันใหม่
+  el.classList.add('tab-enter');
+}
+
 // =====================================================================
 // Data sanitizers (ใช้ทั้งตอนโหลดและตอนนำเข้าไฟล์)
 // =====================================================================
@@ -354,6 +391,7 @@ function switchTab(tab) {
     else b.removeAttribute('aria-current');
   });
   setStorage(KEYS.tab, tab);
+  animateIn($(`tab-${tab}`));
   const scroller = document.getElementById('app-scroll');
   if (scroller) scroller.scrollTop = 0;
 }
@@ -362,6 +400,11 @@ function openModal(id) {
   const el = $(id);
   el.classList.remove('hidden');
   el.classList.add('flex');
+  if (!reduceMotion.matches) {
+    el.classList.remove('modal-enter');
+    void el.offsetWidth;
+    el.classList.add('modal-enter');
+  }
   refreshIcons();
 }
 
@@ -964,7 +1007,10 @@ function moveTask(id, nextStatus) {
   tasks = tasks.map((t) => (t.id === id ? { ...t, status: nextStatus } : t));
   setStorage(KEYS.tasks, tasks);
   renderTasks();
-  if (nextStatus === 'done') toast('เยี่ยม! ทำงานเสร็จไปอีกหนึ่งชิ้น 🎉', 'success');
+  if (nextStatus === 'done') {
+    confetti();
+    toast('เยี่ยม! ทำงานเสร็จไปอีกหนึ่งชิ้น 🎉', 'success');
+  }
 }
 
 function deleteTask(id) {
@@ -996,6 +1042,8 @@ let focusCount = 0;
 let audioCtx = null;
 
 function updateTimerUI() {
+  const ringBox = $('timer-ring-box');
+  if (ringBox) ringBox.classList.toggle('timer-running', isRunning);
   const mins = pad2(Math.floor(timeLeft / 60));
   const secs = pad2(timeLeft % 60);
   $('timer-display').textContent = `${mins}:${secs}`;
@@ -1060,6 +1108,7 @@ function completeSession() {
   if (mode === 'focus') {
     focusCount++;
     const subject = logStudyTime(pomo.focus);
+    if (!document.hidden) confetti({ x: window.innerWidth / 2, y: window.innerHeight / 2, count: 32, spread: 1.6 });
     notify('หมดเวลาโฟกัส! 🎉', `อ่าน ${subject} ไปอีก ${pomo.focus} นาที ได้เวลาพักแล้ว`);
     setMode(focusCount % pomo.longEvery === 0 ? 'long' : 'short');
   } else {
