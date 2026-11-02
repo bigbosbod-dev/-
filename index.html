@@ -115,6 +115,10 @@
           <div id="today-exams" class="divide-y divide-slate-100 dark:divide-slate-800"></div>
         </div>
         <div class="card p-5">
+          <h3 class="font-semibold heading flex items-center gap-2 mb-3"><i data-lucide="chart-no-axes-column" class="w-4 h-4 text-indigo-500"></i> สัปดาห์นี้</h3>
+          <div id="today-week"></div>
+        </div>
+        <div class="card p-5">
           <h3 class="font-semibold heading flex items-center gap-2 mb-3"><i data-lucide="timer" class="w-4 h-4 text-indigo-500"></i> การอ่านวันนี้</h3>
           <div id="today-study" class="mb-4"></div>
           <button id="today-focus-btn" onclick="startFocusFromToday()" class="btn-primary w-full text-sm">เริ่มโฟกัส</button>
@@ -463,6 +467,55 @@
     </div>
   </div>
 
+  <!-- ===== MODAL: SUBJECT DETAIL ===== -->
+  <div id="subject-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) { saveSubjectInfoNow(); closeModal('subject-modal'); }">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-5 shadow-xl max-h-[90vh] overflow-y-auto safe-bottom-pad">
+      <div class="flex items-start justify-between gap-3">
+        <div id="sheet-head" class="min-w-0"></div>
+        <button onclick="saveSubjectInfoNow(); closeModal('subject-modal')" class="icon-btn shrink-0" aria-label="ปิด"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="text-sm font-semibold heading flex items-center gap-2"><i data-lucide="user-check" class="w-4 h-4 text-indigo-500"></i> การเข้าเรียน</h4>
+        <div id="sheet-attend-summary"></div>
+        <div id="sheet-attend-list" class="divide-y divide-slate-100 dark:divide-slate-800 max-h-64 overflow-y-auto"></div>
+        <p class="text-[11px] muted">แตะสถานะซ้ำเพื่อยกเลิก · "ลา" และ "ขาด" นับเป็นไม่ได้เข้าเรียน</p>
+        <details class="text-xs">
+          <summary class="cursor-pointer muted">ตั้งค่าเกณฑ์การเข้าเรียน</summary>
+          <div class="grid grid-cols-3 gap-2 mt-2">
+            <label class="space-y-1"><span class="muted block">เปิดเทอมวันที่</span><input id="attend-start" type="date" class="input !py-1" onchange="saveAttendSettings()" /></label>
+            <label class="space-y-1"><span class="muted block">จำนวนสัปดาห์</span><input id="attend-weeks" type="number" min="1" max="30" class="input !py-1" onchange="saveAttendSettings()" /></label>
+            <label class="space-y-1"><span class="muted block">ต้องเข้าเรียน (%)</span><input id="attend-required" type="number" min="50" max="100" class="input !py-1" onchange="saveAttendSettings()" /></label>
+          </div>
+        </details>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="text-sm font-semibold heading flex items-center gap-2"><i data-lucide="notebook-text" class="w-4 h-4 text-indigo-500"></i> ข้อมูลวิชา</h4>
+        <div>
+          <label class="label" for="sheet-teacher">อาจารย์ผู้สอน</label>
+          <input id="sheet-teacher" type="text" maxlength="100" class="input" placeholder="เช่น อ.สมชาย" oninput="saveSubjectInfoSoon()" />
+        </div>
+        <div>
+          <label class="label" for="sheet-notes">โน้ต</label>
+          <textarea id="sheet-notes" rows="4" maxlength="5000" class="input" placeholder="เช่น เกณฑ์คะแนน, สิ่งที่ต้องเตรียม, เบอร์ติดต่อ" oninput="saveSubjectInfoSoon()"></textarea>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="text-sm font-semibold heading flex items-center gap-2"><i data-lucide="link" class="w-4 h-4 text-indigo-500"></i> ลิงก์</h4>
+        <div id="sheet-links" class="space-y-2"></div>
+        <div class="grid grid-cols-5 gap-2">
+          <input id="sheet-link-label" type="text" maxlength="60" class="input col-span-2" placeholder="ชื่อ เช่น Classroom" />
+          <input id="sheet-link-url" type="url" inputmode="url" class="input col-span-3" placeholder="https://..." onkeydown="if (event.key === 'Enter') addSubjectLink()" />
+        </div>
+        <button onclick="addSubjectLink()" class="btn-secondary w-full text-sm !py-2">+ เพิ่มลิงก์</button>
+      </div>
+
+      <button onclick="editCurrentSchedule()" class="w-full text-sm text-indigo-600 dark:text-indigo-300 py-1 flex items-center justify-center gap-2"><i data-lucide="pencil" class="w-4 h-4"></i> แก้ไขวัน เวลา ห้อง หรือสีของคาบนี้</button>
+    </div>
+  </div>
+
   <!-- ===== MODAL: EXAM ===== -->
   <div id="exam-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('exam-modal')">
     <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl safe-bottom-pad">
@@ -621,8 +674,20 @@
           </span>
         </label>
         <label class="flex items-center justify-between gap-3 text-sm">
-          <span>เตือนงานที่ต้องส่งวันนี้/พรุ่งนี้ (วันละครั้ง)</span>
+          <span>เตือนงานที่ต้องส่งวันนี้/พรุ่งนี้ และวันสอบ</span>
           <input id="rem-task" type="checkbox" class="w-5 h-5 accent-indigo-600" onchange="saveReminderSettings(true)" />
+        </label>
+        <div class="grid grid-cols-3 gap-2 text-xs">
+          <label class="space-y-1"><span class="muted block">เตือนงาน</span><input id="rem-task-time" type="time" class="input !py-1" onchange="saveReminderSettings()" /></label>
+          <label class="space-y-1"><span class="muted block">คืนก่อนสอบ</span><input id="rem-exam-eve-time" type="time" class="input !py-1" onchange="saveReminderSettings()" /></label>
+          <label class="space-y-1"><span class="muted block">เช้าวันสอบ</span><input id="rem-exam-day-time" type="time" class="input !py-1" onchange="saveReminderSettings()" /></label>
+        </div>
+        <label class="flex items-center justify-between gap-3 text-sm">
+          <span>สรุปประจำสัปดาห์ (เย็นวันอาทิตย์)</span>
+          <span class="flex items-center gap-2">
+            <input id="rem-weekly-time" type="time" class="input !w-auto !py-1" onchange="saveReminderSettings()" />
+            <input id="rem-weekly" type="checkbox" class="w-5 h-5 accent-indigo-600" onchange="saveReminderSettings(true)" />
+          </span>
         </label>
         <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2">
           <div class="text-sm font-medium heading flex items-center gap-2"><i data-lucide="bell-ring" class="w-4 h-4 text-indigo-500"></i> แจ้งเตือนแม้ปิดแอป</div>
@@ -652,7 +717,7 @@
         <p id="installed-note" class="text-xs text-emerald-600 dark:text-emerald-400 hidden">✓ กำลังใช้งานแบบแอปอยู่ ใช้งานได้แม้ไม่มีอินเทอร์เน็ต</p>
       </div>
 
-      <p class="text-[11px] text-center muted">StudyFlow v5</p>
+      <p class="text-[11px] text-center muted">StudyFlow v6</p>
     </div>
   </div>
 

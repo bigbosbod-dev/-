@@ -20,6 +20,9 @@ const KEYS = {
   notified: 'notified_keys',
   calendar: 'calendar_settings',
   subjectColors: 'subject_colors',
+  attendance: 'attendance_data',
+  attendSettings: 'attendance_settings',
+  subjectInfo: 'subject_info',
 };
 
 // อ่านข้อมูลอย่างปลอดภัย: ถ้าข้อมูลเสียหรือเบราว์เซอร์บล็อก storage จะใช้ค่าเริ่มต้นแทน แอปไม่พัง
@@ -42,7 +45,7 @@ function getStorage(key, fallback) {
 const SYNCED_KEYS = new Set([
   'schedules_data', 'tasks_data', 'study_stats', 'study_log', 'gpa_rows', 'gpa_sim',
   'pomo_settings', 'exams_data', 'semesters_data', 'reminder_settings', 'calendar_settings',
-  'subject_colors',
+  'subject_colors', 'attendance_data', 'attendance_settings', 'subject_info',
 ]);
 // sync.js จะมาแทนที่ฟังก์ชันนี้ เพื่อรู้ว่าข้อมูลเปลี่ยนแล้วต้องอัปโหลด
 let onLocalDataChange = () => {};
@@ -191,6 +194,7 @@ function sanitizeTasks(list) {
       subject: String(t.subject || 'ทั่วไป').slice(0, 100),
       due: DATE_RE.test(t.due) ? t.due : '',
       status: STATUSES.includes(t.status) ? t.status : 'todo',
+      doneAt: t.status === 'done' && DATE_RE.test(t.doneAt) ? t.doneAt : '',
     }));
 }
 
@@ -274,11 +278,63 @@ function sanitizeStudyLog(obj) {
 
 function sanitizeReminders(obj) {
   const src = obj && typeof obj === 'object' ? obj : {};
+  const time = (v, d) => (TIME_RE.test(v) ? v : d);
   return {
     classEnabled: src.classEnabled !== false,
     classMinutes: [5, 10, 15, 30, 60].includes(Number(src.classMinutes)) ? Number(src.classMinutes) : 10,
     taskEnabled: src.taskEnabled !== false,
+    taskTime: time(src.taskTime, '08:00'), // เตือนงานที่ต้องส่งวันนี้/พรุ่งนี้
+    examEveTime: time(src.examEveTime, '19:00'), // เตือนคืนก่อนสอบ
+    examDayTime: time(src.examDayTime, '06:00'), // เตือนเช้าวันสอบ
+    weeklyEnabled: src.weeklyEnabled !== false, // สรุปประจำสัปดาห์ (เย็นวันอาทิตย์)
+    weeklyTime: time(src.weeklyTime, '19:00'),
   };
+}
+
+// ---------- การเข้าเรียน ----------
+const ATTEND_STATUSES = ['present', 'late', 'leave', 'absent'];
+// { [scheduleId]: { 'YYYY-MM-DD': 'present' | 'late' | 'leave' | 'absent' } }
+function sanitizeAttendance(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  Object.entries(obj).forEach(([id, days]) => {
+    if (!/^\d+$/.test(id) || !days || typeof days !== 'object') return;
+    const clean = {};
+    Object.entries(days).forEach(([d, st]) => { if (DATE_RE.test(d) && ATTEND_STATUSES.includes(st)) clean[d] = st; });
+    if (Object.keys(clean).length) out[id] = clean;
+  });
+  return out;
+}
+
+function mondayOf(dateStr) {
+  const d = parseDate(dateStr) || new Date();
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function sanitizeAttendSettings(obj) {
+  const src = obj && typeof obj === 'object' ? obj : {};
+  return {
+    semesterStart: DATE_RE.test(src.semesterStart) ? src.semesterStart : mondayOf(todayStr()),
+    weeks: clamp(Math.round(Number(src.weeks)) || 15, 1, 30),
+    required: clamp(Math.round(Number(src.required)) || 80, 50, 100),
+  };
+}
+
+// ---------- ข้อมูลวิชา (อาจารย์ โน้ต ลิงก์) ----------
+// { [subjectKey]: { teacher, notes, links: [{ label, url }] } }
+function sanitizeSubjectInfo(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  Object.entries(obj).forEach(([k, v]) => {
+    if (!k || k.length > 100 || !v || typeof v !== 'object') return;
+    const links = (Array.isArray(v.links) ? v.links : [])
+      .filter((l) => l && /^https?:\/\//i.test(String(l.url || '')))
+      .slice(0, 20)
+      .map((l) => ({ label: String(l.label || '').slice(0, 60), url: String(l.url).slice(0, 500) }));
+    out[subjectKey(k)] = { teacher: String(v.teacher || '').slice(0, 100), notes: String(v.notes || '').slice(0, 5000), links };
+  });
+  return out;
 }
 
 function sanitizeCalendarSettings(obj) {
@@ -316,6 +372,9 @@ function sanitizeSubjectColors(obj) {
 }
 
 let subjectColors = sanitizeSubjectColors(getStorage(KEYS.subjectColors, {}));
+let attendance = sanitizeAttendance(getStorage(KEYS.attendance, {}));
+let attendSettings = sanitizeAttendSettings(getStorage(KEYS.attendSettings, {}));
+let subjectInfo = sanitizeSubjectInfo(getStorage(KEYS.subjectInfo, {}));
 
 // ให้สีวิชาใหม่ตามลำดับชุดสี (เลือกสีที่ใช้น้อยที่สุด เริ่มจากสีแรก)
 function colorFor(name, map = subjectColors, assign = true) {
@@ -467,11 +526,12 @@ function scheduleGridHtml(list, { editable = false, colors = subjectColors } = {
 
 function scheduleCardHtml(item, { editable = true, colors = subjectColors } = {}) {
   return `
-    <div ${editable ? `onclick="openScheduleModal(${item.id})"` : ''} ${subjectStyle(item.name, colors, editable)} class="subj subj-tint subj-bar border border-slate-200/70 dark:border-slate-700/60 p-3 rounded-xl relative group ${editable ? 'cursor-pointer hover:shadow-sm' : ''} transition">
+    <div ${editable ? `onclick="openSubjectSheet(${item.id})"` : ''} ${subjectStyle(item.name, colors, editable)} class="subj subj-tint subj-bar border border-slate-200/70 dark:border-slate-700/60 p-3 rounded-xl relative group ${editable ? 'cursor-pointer hover:shadow-sm' : ''} transition">
       ${editable ? `<button onclick="event.stopPropagation(); deleteSchedule(${item.id})" aria-label="ลบวิชา" class="absolute top-2 right-2 text-slate-400 hover:text-rose-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition">
         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
       </button>` : ''}
       <div class="font-semibold text-xs heading pr-5">${escapeHtml(item.name)}</div>
+      ${editable ? attendanceBadgeHtml(item) : ''}
       <div class="text-[11px] muted mt-1 flex items-center gap-1">
         <i data-lucide="clock" class="w-3 h-3 text-indigo-500"></i> ${escapeHtml(item.start)} - ${escapeHtml(item.end)}
       </div>
@@ -1004,7 +1064,7 @@ function saveTask() {
 
 function moveTask(id, nextStatus) {
   if (!STATUSES.includes(nextStatus)) return;
-  tasks = tasks.map((t) => (t.id === id ? { ...t, status: nextStatus } : t));
+  tasks = tasks.map((t) => (t.id === id ? { ...t, status: nextStatus, doneAt: nextStatus === 'done' ? todayStr() : '' } : t));
   setStorage(KEYS.tasks, tasks);
   renderTasks();
   if (nextStatus === 'done') {
@@ -1297,6 +1357,11 @@ function fillReminderSettings() {
   $('rem-class').checked = reminders.classEnabled;
   $('rem-class-minutes').value = String(reminders.classMinutes);
   $('rem-task').checked = reminders.taskEnabled;
+  $('rem-task-time').value = reminders.taskTime;
+  $('rem-exam-eve-time').value = reminders.examEveTime;
+  $('rem-exam-day-time').value = reminders.examDayTime;
+  $('rem-weekly').checked = reminders.weeklyEnabled;
+  $('rem-weekly-time').value = reminders.weeklyTime;
 }
 
 function saveReminderSettings(askPermission = false) {
@@ -1304,6 +1369,11 @@ function saveReminderSettings(askPermission = false) {
     classEnabled: $('rem-class').checked,
     classMinutes: $('rem-class-minutes').value,
     taskEnabled: $('rem-task').checked,
+    taskTime: $('rem-task-time').value,
+    examEveTime: $('rem-exam-eve-time').value,
+    examDayTime: $('rem-exam-day-time').value,
+    weeklyEnabled: $('rem-weekly').checked,
+    weeklyTime: $('rem-weekly-time').value,
   });
   setStorage(KEYS.reminders, reminders);
   if (askPermission && (reminders.classEnabled || reminders.taskEnabled)) {
@@ -1337,7 +1407,7 @@ function checkReminders() {
     });
   }
 
-  if (reminders.taskEnabled) {
+  if (reminders.taskEnabled && nowMin >= toMinutes(reminders.taskTime)) {
     const pending = tasks.filter((t) => t.status !== 'done');
     const overdue = pending.filter((t) => daysUntil(t.due) !== null && daysUntil(t.due) < 0);
     const today = pending.filter((t) => daysUntil(t.due) === 0);
@@ -1494,6 +1564,224 @@ function simulateTarget() {
 }
 
 // =====================================================================
+// การเข้าเรียน (เช็กชื่อ / นับวันขาด)
+// =====================================================================
+const ATTEND_LABEL = { present: 'มา', late: 'สาย', leave: 'ลา', absent: 'ขาด' };
+const ATTEND_ACTIVE = {
+  present: 'bg-emerald-600 text-white border-emerald-600',
+  late: 'bg-amber-500 text-white border-amber-500',
+  leave: 'bg-sky-600 text-white border-sky-600',
+  absent: 'bg-rose-600 text-white border-rose-600',
+};
+
+// วันที่มีเรียนของคาบนี้ ตั้งแต่เปิดเทอมจนถึงวันนี้ (ใหม่สุดก่อน)
+function classDates(sched) {
+  const out = [];
+  const start = parseDate(attendSettings.semesterStart);
+  if (!start) return out;
+  const dayIdx = DAYS.indexOf(sched.day);
+  const d = new Date(start);
+  d.setDate(d.getDate() + ((dayIdx - ((d.getDay() + 6) % 7) + 7) % 7));
+  const today = parseDate(todayStr());
+  const limit = attendSettings.weeks + 2;
+  while (d <= today && out.length < limit) {
+    out.push(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`);
+    d.setDate(d.getDate() + 7);
+  }
+  return out.reverse();
+}
+
+function attendanceSummary(sched) {
+  const marks = attendance[sched.id] || {};
+  const count = { present: 0, late: 0, leave: 0, absent: 0 };
+  Object.values(marks).forEach((st) => { count[st]++; });
+  const missed = count.leave + count.absent;
+  const max = Math.floor((attendSettings.weeks * (100 - attendSettings.required)) / 100);
+  return { ...count, missed, max, remaining: max - missed, marked: Object.keys(marks).length };
+}
+
+function attendanceBadgeHtml(sched) {
+  const a = attendanceSummary(sched);
+  if (!a.marked) return '';
+  let tone = 'muted';
+  let text = `ขาด/ลา ${a.missed}/${a.max}`;
+  if (a.remaining < 0) { tone = 'text-rose-600 dark:text-rose-400 font-semibold'; text = `⚠️ ขาดเกิน ${a.missed}/${a.max} เสี่ยงหมดสิทธิ์สอบ`; }
+  else if (a.remaining === 0) { tone = 'text-rose-600 dark:text-rose-400 font-semibold'; text = `⚠️ ขาดครบ ${a.max} ครั้งแล้ว ห้ามขาดอีก`; }
+  else if (a.remaining === 1) { tone = 'text-orange-600 dark:text-orange-400 font-medium'; text = `ขาดได้อีก 1 ครั้ง (${a.missed}/${a.max})`; }
+  return `<div class="text-[11px] mt-1 ${tone}">${text}</div>`;
+}
+
+function attendanceButtonsHtml(schedId, date) {
+  const cur = (attendance[schedId] || {})[date];
+  return ATTEND_STATUSES.map((st) => `
+    <button onclick="event.stopPropagation(); setAttendance(${schedId}, '${date}', '${st}')"
+      class="px-2.5 py-1 rounded-lg text-[11px] font-medium border ${cur === st ? ATTEND_ACTIVE[st] : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}">${ATTEND_LABEL[st]}</button>`).join('');
+}
+
+function setAttendance(schedId, date, status) {
+  if (!ATTEND_STATUSES.includes(status) || !DATE_RE.test(date)) return;
+  const marks = { ...(attendance[schedId] || {}) };
+  if (marks[date] === status) delete marks[date]; // แตะซ้ำ = ยกเลิก
+  else marks[date] = status;
+  attendance = { ...attendance, [schedId]: marks };
+  if (!Object.keys(marks).length) delete attendance[schedId];
+  setStorage(KEYS.attendance, attendance);
+  const sched = schedules.find((x) => x.id === schedId);
+  const a = sched ? attendanceSummary(sched) : null;
+  if (a && (status === 'absent' || status === 'leave') && marks[date]) {
+    if (a.remaining < 0) toast(`⚠️ ${sched.name} ขาดเกินเกณฑ์แล้ว (${a.missed}/${a.max}) ควรติดต่ออาจารย์`, 'error', 6000);
+    else if (a.remaining === 0) toast(`⚠️ ${sched.name}: ขาดครบ ${a.max} ครั้งแล้ว ห้ามขาดอีก`, 'error', 6000);
+    else if (a.remaining === 1) toast(`${sched.name}: ขาดได้อีก 1 ครั้งเท่านั้น`, 'error', 5000);
+  }
+  renderSchedule();
+  if (currentSheetId === schedId) renderSubjectSheet();
+}
+
+// =====================================================================
+// หน้ารายละเอียดวิชา (การเข้าเรียน + อาจารย์ โน้ต ลิงก์)
+// =====================================================================
+let currentSheetId = null;
+let infoSaveTimer = null;
+
+function infoFor(name) {
+  return subjectInfo[subjectKey(name)] || { teacher: '', notes: '', links: [] };
+}
+
+function openSubjectSheet(id) {
+  const sched = schedules.find((x) => x.id === id);
+  if (!sched) return;
+  currentSheetId = id;
+  const info = infoFor(sched.name);
+  $('sheet-teacher').value = info.teacher;
+  $('sheet-notes').value = info.notes;
+  $('sheet-link-label').value = '';
+  $('sheet-link-url').value = '';
+  $('attend-start').value = attendSettings.semesterStart;
+  $('attend-weeks').value = attendSettings.weeks;
+  $('attend-required').value = attendSettings.required;
+  renderSubjectSheet();
+  openModal('subject-modal');
+}
+
+function renderSubjectSheet() {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  $('sheet-head').innerHTML = `
+    <div ${subjectStyle(sched.name)} class="subj subj-bar pl-3">
+      <h3 class="text-lg font-bold heading leading-snug">${escapeHtml(sched.name)}</h3>
+      <p class="text-xs muted">วัน${sched.day} ${escapeHtml(sched.start)} - ${escapeHtml(sched.end)}${sched.room ? ` · ห้อง ${escapeHtml(sched.room)}` : ''}</p>
+    </div>`;
+
+  const a = attendanceSummary(sched);
+  const pct = a.marked ? Math.round(((a.present + a.late) / a.marked) * 100) : null;
+  const tile = (v, l, cls = 'heading') => `<div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2 text-center"><div class="text-lg font-bold ${cls}">${v}</div><div class="text-[10px] muted">${l}</div></div>`;
+  $('sheet-attend-summary').innerHTML = `
+    <div class="grid grid-cols-4 gap-2">
+      ${tile(a.present, 'มา')}${tile(a.late, 'สาย')}${tile(a.leave, 'ลา')}${tile(a.absent, 'ขาด', a.absent ? 'text-rose-600 dark:text-rose-400' : 'heading')}
+    </div>
+    <p class="text-xs mt-2 ${a.remaining <= 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : a.remaining === 1 ? 'text-orange-600 dark:text-orange-400' : 'muted'}">
+      ขาด+ลาแล้ว ${a.missed} จากที่ขาดได้ ${a.max} ครั้ง (ต้องเข้าเรียน ${attendSettings.required}% ของ ${attendSettings.weeks} สัปดาห์)${pct !== null ? ` · เข้าเรียน ${pct}% ของคาบที่เช็กแล้ว` : ''}
+    </p>`;
+
+  const dates = classDates(sched);
+  $('sheet-attend-list').innerHTML = dates.length ? dates.map((d) => `
+    <div class="flex items-center justify-between gap-2 py-2">
+      <span class="text-xs heading whitespace-nowrap">${formatThaiDate(d)}${d === todayStr() ? ' <span class="muted">(วันนี้)</span>' : ''}</span>
+      <div class="flex gap-1">${attendanceButtonsHtml(sched.id, d)}</div>
+    </div>`).join('') : '<p class="text-xs muted py-2">ยังไม่ถึงวันเรียนวันแรกของวิชานี้ (ตั้งวันเปิดเทอมได้ด้านล่าง)</p>';
+
+  const info = infoFor(sched.name);
+  $('sheet-links').innerHTML = info.links.length ? info.links.map((l, i) => `
+    <div class="flex items-center gap-2">
+      <a href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer" class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm">
+        <i data-lucide="external-link" class="w-4 h-4 text-indigo-500 shrink-0"></i>
+        <span class="truncate heading">${escapeHtml(l.label || l.url)}</span>
+      </a>
+      <button onclick="removeSubjectLink(${i})" aria-label="ลบลิงก์" class="text-slate-400 hover:text-rose-500 p-1">✕</button>
+    </div>`).join('') : '<p class="text-xs muted">ยังไม่มีลิงก์ เช่น Google Classroom, กลุ่ม LINE, Drive เอกสาร</p>';
+  refreshIcons();
+}
+
+function saveSubjectInfoNow() {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  const k = subjectKey(sched.name);
+  const cur = infoFor(sched.name);
+  subjectInfo = { ...subjectInfo, [k]: { ...cur, teacher: $('sheet-teacher').value.slice(0, 100), notes: $('sheet-notes').value.slice(0, 5000) } };
+  setStorage(KEYS.subjectInfo, subjectInfo);
+}
+
+function saveSubjectInfoSoon() {
+  clearTimeout(infoSaveTimer);
+  infoSaveTimer = setTimeout(saveSubjectInfoNow, 500);
+}
+
+function addSubjectLink() {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  let url = $('sheet-link-url').value.trim();
+  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+  try { new URL(url); } catch (e) { return toast('ลิงก์ไม่ถูกต้อง', 'error'); }
+  saveSubjectInfoNow();
+  const k = subjectKey(sched.name);
+  const cur = infoFor(sched.name);
+  if (cur.links.length >= 20) return toast('เพิ่มลิงก์ได้สูงสุด 20 ลิงก์ต่อวิชา', 'error');
+  subjectInfo = { ...subjectInfo, [k]: { ...cur, links: [...cur.links, { label: $('sheet-link-label').value.trim().slice(0, 60), url }] } };
+  setStorage(KEYS.subjectInfo, subjectInfo);
+  $('sheet-link-label').value = '';
+  $('sheet-link-url').value = '';
+  renderSubjectSheet();
+}
+
+function removeSubjectLink(i) {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  const k = subjectKey(sched.name);
+  const cur = infoFor(sched.name);
+  subjectInfo = { ...subjectInfo, [k]: { ...cur, links: cur.links.filter((_, j) => j !== i) } };
+  setStorage(KEYS.subjectInfo, subjectInfo);
+  renderSubjectSheet();
+}
+
+function saveAttendSettings() {
+  attendSettings = sanitizeAttendSettings({ semesterStart: $('attend-start').value, weeks: $('attend-weeks').value, required: $('attend-required').value });
+  setStorage(KEYS.attendSettings, attendSettings);
+  renderSubjectSheet();
+  renderSchedule();
+}
+
+function editCurrentSchedule() {
+  const id = currentSheetId;
+  saveSubjectInfoNow();
+  closeModal('subject-modal');
+  openScheduleModal(id);
+}
+
+// =====================================================================
+// สรุปสัปดาห์นี้ (หน้า "วันนี้")
+// =====================================================================
+function weekSummary() {
+  const start = mondayOf(todayStr());
+  const inWeek = (d) => d >= start && d <= todayStr();
+  let minutes = 0;
+  Object.entries(studyLog).forEach(([d, subj]) => { if (inWeek(d)) minutes += Object.values(subj).reduce((a, b) => a + b, 0); });
+  const done = tasks.filter((t) => t.status === 'done' && t.doneAt && inWeek(t.doneAt)).length;
+  let missed = 0;
+  Object.values(attendance).forEach((days) => Object.entries(days).forEach(([d, st]) => { if (inWeek(d) && (st === 'absent' || st === 'leave')) missed++; }));
+  const due7 = tasks.filter((t) => t.status !== 'done' && daysUntil(t.due) !== null && daysUntil(t.due) >= 0 && daysUntil(t.due) <= 7).length;
+  const exams7 = exams.filter((e) => daysUntil(e.date) >= 0 && daysUntil(e.date) <= 7).length;
+  return { minutes, done, missed, due7, exams7 };
+}
+
+function renderWeekCard() {
+  const w = weekSummary();
+  const tile = (v, l) => `<div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3 text-center"><div class="text-lg font-bold heading leading-tight">${v}</div><div class="text-[11px] muted mt-0.5">${l}</div></div>`;
+  $('today-week').innerHTML = `
+    <div class="grid grid-cols-3 gap-2">${tile(formatDuration(w.minutes), 'อ่านสัปดาห์นี้')}${tile(`${w.done} ชิ้น`, 'งานที่เสร็จ')}${tile(`${w.missed} ครั้ง`, 'ขาด/ลาเรียน')}</div>
+    <p class="text-xs muted mt-3">7 วันข้างหน้า: งานต้องส่ง <b class="heading">${w.due7}</b> ชิ้น · สอบ <b class="heading">${w.exams7}</b> วิชา</p>`;
+}
+
+// =====================================================================
 // 0. TODAY (หน้า "วันนี้")
 // =====================================================================
 function renderToday() {
@@ -1515,13 +1803,17 @@ function renderToday() {
     if (nowMin >= en) { badge = '<span class="text-[11px] muted">เรียนแล้ว</span>'; faded = 'opacity-60'; }
     else if (nowMin >= st) badge = `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${DUE_BADGE.done}">กำลังเรียน</span>`;
     else if (st - nowMin <= 60) badge = `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${DUE_BADGE.urgent}">อีก ${formatDuration(st - nowMin)}</span>`;
+    const started = nowMin >= st;
     return `
-      <div ${subjectStyle(s.name)} class="subj subj-bar flex items-center justify-between gap-3 py-2.5 pl-3 pr-1 ${faded}">
-        <div class="min-w-0">
-          <div class="text-sm font-medium heading truncate">${escapeHtml(s.name)}</div>
-          <div class="text-xs muted">${escapeHtml(s.start)} - ${escapeHtml(s.end)}${s.room ? ` · ${escapeHtml(s.room)}` : ''}</div>
+      <div ${subjectStyle(s.name)} class="subj subj-bar py-2.5 pl-3 pr-1">
+        <div class="flex items-center justify-between gap-3 ${faded}">
+          <button onclick="openSubjectSheet(${s.id})" class="min-w-0 text-left">
+            <div class="text-sm font-medium heading truncate">${escapeHtml(s.name)}</div>
+            <div class="text-xs muted">${escapeHtml(s.start)} - ${escapeHtml(s.end)}${s.room ? ` · ${escapeHtml(s.room)}` : ''}</div>
+          </button>
+          ${badge}
         </div>
-        ${badge}
+        ${started ? `<div class="mt-2 flex items-center gap-1.5 flex-wrap">${attendanceButtonsHtml(s.id, todayStr())}${attendanceBadgeHtml(s)}</div>` : ''}
       </div>`;
   }).join('') : '<p class="text-sm muted py-2">วันนี้ไม่มีเรียน 🎉</p>';
 
@@ -1566,6 +1858,7 @@ function renderToday() {
       <div><div class="text-2xl font-bold heading">${formatDuration(mins)}</div><div class="text-xs muted">อ่านวันนี้</div></div>
       <div><div class="text-2xl font-bold heading">${streak} วัน${streak >= 3 ? ' 🔥' : ''}</div><div class="text-xs muted">อ่านติดต่อกัน</div></div>
     </div>`;
+  renderWeekCard();
   $('today-focus-btn').textContent = isRunning ? 'ดูตัวจับเวลา' : 'เริ่มโฟกัส 25 นาที'.replace('25', String(pomo.focus));
 }
 
@@ -1658,7 +1951,7 @@ function useHistoryInSimulator() {
 // Backup: export / import / clear
 // =====================================================================
 function collectData() {
-  return { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings, subjectColors };
+  return { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings, subjectColors, attendance, attendSettings, subjectInfo };
 }
 
 // แทนที่ข้อมูลทั้งหมดด้วยข้อมูลชุดใหม่ (จากไฟล์สำรองหรือจากคลาวด์) แล้ววาดหน้าจอใหม่
@@ -1675,6 +1968,9 @@ function applyData(d, { fromSync = false } = {}) {
   reminders = sanitizeReminders(d.reminders);
   calSettings = sanitizeCalendarSettings(d.calSettings);
   subjectColors = sanitizeSubjectColors(d.subjectColors);
+  attendance = sanitizeAttendance(d.attendance);
+  attendSettings = sanitizeAttendSettings(d.attendSettings);
+  subjectInfo = sanitizeSubjectInfo(d.subjectInfo);
   suppressChangeHook = fromSync;
   try {
     saveAllData();
@@ -1708,6 +2004,9 @@ function saveAllData() {
   setStorage(KEYS.reminders, reminders);
   setStorage(KEYS.calendar, calSettings);
   setStorage(KEYS.subjectColors, subjectColors);
+  setStorage(KEYS.attendance, attendance);
+  setStorage(KEYS.attendSettings, attendSettings);
+  setStorage(KEYS.subjectInfo, subjectInfo);
 }
 
 async function importData(input) {
@@ -1743,6 +2042,9 @@ function clearAllData() {
   reminders = sanitizeReminders({});
   calSettings = sanitizeCalendarSettings({});
   subjectColors = {};
+  attendance = {};
+  attendSettings = sanitizeAttendSettings({});
+  subjectInfo = {};
   saveAllData();
   renderAll();
   closeModal('settings-modal');

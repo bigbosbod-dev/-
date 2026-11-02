@@ -111,6 +111,11 @@ const daysBetween = (from: string, to: string) => {
   return Math.round((b - a) / 86400000);
 };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const shiftDate = (date: string, days: number) => {
+  const [y, m, d] = date.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return t.toISOString().slice(0, 10);
+};
 const TIME_RE = /^\d{2}:\d{2}$/;
 const examTitle = (name: string) => (name.trim().startsWith('สอบ') ? name : `สอบ ${name}`);
 
@@ -125,6 +130,14 @@ function dueReminders(data: any, tz: string): Reminder[] {
   const classEnabled = rem.classEnabled !== false;
   const classMinutes = [5, 10, 15, 30, 60].includes(Number(rem.classMinutes)) ? Number(rem.classMinutes) : 10;
   const taskEnabled = rem.taskEnabled !== false;
+  const at = (v: unknown, d: string) => toMinutes(TIME_RE.test(String(v)) ? String(v) : d);
+  const taskAt = at(rem.taskTime, '08:00');
+  const examEveAt = at(rem.examEveTime, '19:00');
+  const examDayAt = at(rem.examDayTime, '06:00');
+  const weeklyAt = at(rem.weeklyTime, '19:00');
+  const weeklyEnabled = rem.weeklyEnabled !== false;
+  // ส่งได้ตั้งแต่เวลาที่ตั้งไว้ จนถึงอีก n ชั่วโมง (ไม่ข้ามเที่ยงคืน) เผื่อเซิร์ฟเวอร์พลาดรอบ
+  const within = (start: number, hours: number) => now.minutes >= start && now.minutes < Math.min(start + hours * 60, 24 * 60);
 
   if (classEnabled && Array.isArray(data?.schedules)) {
     for (const s of data.schedules) {
@@ -140,8 +153,8 @@ function dueReminders(data: any, tz: string): Reminder[] {
     }
   }
 
-  // งานและวันสอบ: เตือนช่วงกลางวัน/หัวค่ำเท่านั้น ไม่ปลุกตอนดึก
-  if (taskEnabled && now.hour >= 8 && now.hour < 22 && Array.isArray(data?.tasks)) {
+  // งานที่ต้องส่ง: วันละครั้งตามเวลาที่ผู้ใช้ตั้ง
+  if (taskEnabled && within(taskAt, 3) && Array.isArray(data?.tasks)) {
     const pending = data.tasks.filter((t: { status?: string; due?: string }) => t && t.status !== 'done' && DATE_RE.test(t.due || ''));
     const by = (n: (d: number) => boolean) => pending.filter((t: { due: string }) => n(daysBetween(now.date, t.due)));
     const overdue = by((d) => d < 0);
@@ -161,13 +174,32 @@ function dueReminders(data: any, tz: string): Reminder[] {
       if (!e || !DATE_RE.test(e.date)) continue;
       const d = daysBetween(now.date, e.date);
       const where = [e.time ? `เวลา ${e.time}` : '', e.room || ''].filter(Boolean).join(' ');
-      if (d === 1 && now.hour >= 19 && now.hour < 22) {
+      if (d === 1 && within(examEveAt, 3)) {
         out.push({ key: `exam-eve:${e.id}:${e.date}`, title: `พรุ่งนี้${examTitle(e.name)} 📝`, body: where || 'เตรียมตัวให้พร้อม นอนเร็ว ๆ นะ' });
       }
-      if (d === 0 && now.hour >= 6 && now.hour < 12) {
+      if (d === 0 && within(examDayAt, 4)) {
         out.push({ key: `exam-day:${e.id}:${e.date}`, title: `วันนี้${examTitle(e.name)} 💪`, body: where || 'สู้ ๆ นะ!' });
       }
     }
+  }
+  // สรุปประจำสัปดาห์: เย็นวันอาทิตย์
+  if (weeklyEnabled && now.dayIdx === 6 && within(weeklyAt, 3)) {
+    const monday = shiftDate(now.date, -6);
+    const inWeek = (d: string) => d >= monday && d <= now.date;
+    let minutes = 0;
+    for (const [d, subj] of Object.entries(data?.studyLog || {})) {
+      if (inWeek(d) && subj && typeof subj === 'object') minutes += Object.values(subj as Record<string, number>).reduce((a, b) => a + (Number(b) || 0), 0);
+    }
+    const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+    const done = tasks.filter((t: { status?: string; doneAt?: string }) => t?.status === 'done' && t.doneAt && inWeek(t.doneAt)).length;
+    const nextWeek = (d: string) => DATE_RE.test(d) && daysBetween(now.date, d) >= 1 && daysBetween(now.date, d) <= 7;
+    const due = tasks.filter((t: { status?: string; due?: string }) => t?.status !== 'done' && nextWeek(t.due || '')).length;
+    const examsNext = (Array.isArray(data?.exams) ? data.exams : []).filter((e: { date?: string }) => nextWeek(e?.date || ''));
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    const read = minutes ? `อ่าน ${h ? `${h} ชม. ` : ''}${m ? `${m} นาที` : ''}`.trim() : 'ยังไม่ได้จับเวลาอ่าน';
+    const next = [due ? `ส่งงาน ${due} ชิ้น` : '', examsNext.length ? `สอบ ${examsNext.length} วิชา` : ''].filter(Boolean).join(', ') || 'ยังไม่มีงานหรือสอบ';
+    out.push({ key: `weekly:${now.date}`, title: 'สรุปสัปดาห์นี้ 📊', body: `${read} · งานเสร็จ ${done} ชิ้น · สัปดาห์หน้า: ${next}` });
   }
   return out;
 }
