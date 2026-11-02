@@ -354,7 +354,8 @@ function switchTab(tab) {
     else b.removeAttribute('aria-current');
   });
   setStorage(KEYS.tab, tab);
-  window.scrollTo({ top: 0 });
+  const scroller = document.getElementById('app-scroll');
+  if (scroller) scroller.scrollTop = 0;
 }
 
 function openModal(id) {

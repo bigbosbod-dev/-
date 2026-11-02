@@ -36,10 +36,10 @@
   <link rel="stylesheet" href="css/style.css" />
 
 </head>
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 min-h-screen flex flex-col">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 h-screen h-[100dvh] overflow-hidden flex flex-col">
 
   <!-- ===== Header ===== -->
-  <header class="bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 safe-top">
+  <header class="bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 shrink-0 z-30 safe-top">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
       <div class="flex items-center gap-2">
         <div class="bg-indigo-600 text-white p-2 rounded-xl shadow-md">
@@ -73,7 +73,8 @@
   </header>
 
   <!-- ===== Main ===== -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-28 md:py-8 flex-1 w-full">
+  <main id="app-scroll" class="flex-1 min-h-0 w-full overflow-y-auto overscroll-contain">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8 md:py-8">
 
     <!-- แสดงเมื่อเกิดข้อผิดพลาด -->
     <div id="error-box" class="hidden mb-5 p-4 rounded-2xl border border-rose-300 bg-rose-50 text-rose-800 dark:bg-rose-500/10 dark:border-rose-500/40 dark:text-rose-200 text-sm">
@@ -372,10 +373,11 @@
         </div>
       </div>
     </section>
+  </div>
   </main>
 
   <!-- ===== Bottom navigation (มือถือ) ===== -->
-  <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 safe-bottom" aria-label="เมนูหลัก">
+  <nav class="md:hidden shrink-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 safe-bottom" aria-label="เมนูหลัก">
     <button onclick="switchTab('today')" data-tab="today" class="bottom-tab"><i data-lucide="sun-medium" class="w-5 h-5"></i>วันนี้</button>
     <button onclick="switchTab('schedule')" data-tab="schedule" class="bottom-tab"><i data-lucide="calendar-days" class="w-5 h-5"></i>ตาราง</button>
     <button onclick="switchTab('kanban')" data-tab="kanban" class="bottom-tab">
