@@ -1,6 +1,6 @@
 // Service worker ของ StudyFlow: ทำให้เปิดแอปได้แม้ไม่มีอินเทอร์เน็ต
 // เมื่อแก้ไฟล์ของแอป ให้เปลี่ยนเลขเวอร์ชันนี้ เพื่อให้แคชเก่าถูกล้าง
-const CACHE = 'studyflow-v2';
+const CACHE = 'studyflow-v3';
 
 const APP_SHELL = [
   './',
@@ -52,7 +52,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
       try {
-        const res = await fetch(request);
+        // no-cache: ถามเซิร์ฟเวอร์ทุกครั้งว่ามีไฟล์ใหม่ไหม กันไม่ให้ได้ไฟล์เก่าปนกับไฟล์ใหม่หลังอัปเดต
+        const res = await fetch(request.url, { cache: 'no-cache', credentials: 'same-origin' });
         if (res.ok) cache.put(request, res.clone());
         return res;
       } catch (e) {

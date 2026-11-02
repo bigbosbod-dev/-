@@ -1045,17 +1045,48 @@ document.addEventListener('visibilitychange', () => {
   refreshTimeSensitive();
 });
 
+// ถ้าเกิดข้อผิดพลาด ให้แสดงบนจอ (แทนที่จะเป็นหน้าว่าง) จะได้แคปมาดูสาเหตุได้
+function showFatalError(message) {
+  const box = $('error-box');
+  if (!box) return;
+  box.classList.remove('hidden');
+  const line = document.createElement('div');
+  line.textContent = message;
+  box.querySelector('.error-list').appendChild(line);
+}
+
+window.addEventListener('error', (e) => {
+  showFatalError(`${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno}:${e.colno})`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  showFatalError(`Promise: ${e.reason && e.reason.message ? e.reason.message : e.reason}`);
+});
+
+// รันแต่ละขั้นแยกกัน ถ้าส่วนใดพัง ส่วนอื่นยังแสดงผลได้
+function safe(name, fn) {
+  try {
+    fn();
+  } catch (err) {
+    console.error(err);
+    showFatalError(`[${name}] ${err && err.message ? err.message : err}`);
+  }
+}
+
 function init() {
-  $('sched-day').innerHTML = DAYS.map((d) => `<option value="${d}">${d}</option>`).join('');
-  $('pomodoro-subject').value = getStorage(KEYS.pomoSubject, '');
-  applyTheme();
-  renderAll();
-  if (Object.values(gpaSim).every((v) => v !== '')) simulateTarget();
-  renderNotifyStatus();
-  renderInstallSection();
-  switchTab(getStorage(KEYS.tab, 'schedule'));
-  refreshIcons();
-  setInterval(refreshTimeSensitive, 30000);
+  safe('days', () => { $('sched-day').innerHTML = DAYS.map((d) => `<option value="${d}">${d}</option>`).join(''); });
+  safe('subject', () => { $('pomodoro-subject').value = getStorage(KEYS.pomoSubject, ''); });
+  safe('theme', applyTheme);
+  safe('schedule', renderSchedule);
+  safe('tasks', renderTasks);
+  safe('stats', renderStudyStats);
+  safe('pomodoro', () => { fillPomoSettings(); setMode(mode); });
+  safe('gpa', () => { renderGpaRows(); fillGpaSim(); calculateGPA(); });
+  safe('simulator', () => { if (Object.values(gpaSim).every((v) => v !== '')) simulateTarget(); });
+  safe('notify', renderNotifyStatus);
+  safe('install', renderInstallSection);
+  safe('tab', () => switchTab(getStorage(KEYS.tab, 'schedule')));
+  safe('icons', refreshIcons);
+  setInterval(() => safe('refresh', refreshTimeSensitive), 30000);
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
