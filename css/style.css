@@ -1,7 +1,25 @@
 body {
   font-family: 'Prompt', sans-serif;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* ซ่อน scrollbar ของแถบเมนูบนมือถือ */
-.no-scrollbar::-webkit-scrollbar { display: none; }
-.no-scrollbar { scrollbar-width: none; }
+/* ให้ช่องวันที่/เวลาและ scrollbar เป็นสีมืดตามธีม */
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+
+/* เว้นที่สำหรับรอยบากและแถบ Home ของ iPhone เมื่อเปิดแบบแอป */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-bottom-pad { padding-bottom: calc(1.5rem + env(safe-area-inset-bottom)); }
+@media (min-width: 640px) {
+  .safe-bottom-pad { padding-bottom: 1.5rem; }
+}
+
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.toast { animation: toast-in 0.2s ease-out; }

@@ -2,214 +2,273 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>StudyFlow – Study &amp; Schedule Organizer</title>
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="description" content="จัดตารางเรียน ติดตามงาน จับเวลา Pomodoro และคำนวณเกรด ในแอปเดียว" />
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#4f46e5" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="StudyFlow" />
+
+  <!-- ตั้งโหมดมืดก่อนหน้าเว็บแสดงผล เพื่อไม่ให้หน้าจอกะพริบเป็นสีขาว -->
+  <script>
+    try {
+      var t = JSON.parse(localStorage.getItem('theme') || '"system"');
+      if (t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (e) {}
+  </script>
+
+  <!-- Tailwind CSS (Play CDN) -->
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>tailwind.config = { darkMode: 'class' };</script>
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" />
   <link rel="stylesheet" href="css/style.css" />
-</head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
 
-  <!-- Navigation Bar -->
-  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-16 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+  <!-- คลาสที่ใช้ซ้ำบ่อย (Tailwind ประมวลผลบล็อกนี้ให้) -->
+  <style type="text/tailwindcss">
+    .card { @apply bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm; }
+    .input { @apply w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500; }
+    .label { @apply block text-slate-600 dark:text-slate-400 text-xs mb-1; }
+    .muted { @apply text-slate-500 dark:text-slate-400; }
+    .heading { @apply text-slate-900 dark:text-slate-100; }
+    .btn-primary { @apply inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-4 py-2.5 rounded-xl font-medium shadow-sm transition disabled:opacity-50; }
+    .btn-secondary { @apply inline-flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl font-medium transition; }
+    .btn-ghost { @apply px-4 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition; }
+    .icon-btn { @apply p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-100 transition; }
+    .tab-btn { @apply relative shrink-0 whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100; }
+    .tab-btn.active { @apply text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15; }
+    .bottom-tab { @apply relative flex flex-col items-center justify-center gap-0.5 pt-2 pb-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 transition; }
+    .bottom-tab.active { @apply text-indigo-600 dark:text-indigo-300; }
+    .pill { @apply px-3.5 py-1.5 rounded-full text-sm font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800; }
+    .pill.active { @apply bg-indigo-600 text-white hover:bg-indigo-600 dark:hover:bg-indigo-600; }
+    .theme-opt { @apply flex-1 flex flex-col items-center gap-1 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 transition; }
+    .theme-opt.active { @apply border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200; }
+    .badge-dot { @apply absolute min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold leading-[18px] text-center; }
+  </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 min-h-screen flex flex-col">
+
+  <!-- ===== Header ===== -->
+  <header class="bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 safe-top">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
       <div class="flex items-center gap-2">
         <div class="bg-indigo-600 text-white p-2 rounded-xl shadow-md">
           <i data-lucide="graduation-cap" class="w-6 h-6"></i>
         </div>
-        <span class="font-bold text-xl tracking-tight text-indigo-950">StudyFlow</span>
+        <span class="font-bold text-xl tracking-tight text-indigo-950 dark:text-white">StudyFlow</span>
       </div>
-      <nav class="flex gap-1 sm:gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
-        <button onclick="switchTab('schedule')" id="tab-btn-schedule" class="tab-btn shrink-0 whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium transition-all text-indigo-600 bg-indigo-50">
-          ตารางเรียน
+
+      <nav class="hidden md:flex gap-1" aria-label="เมนูหลัก">
+        <button onclick="switchTab('schedule')" data-tab="schedule" class="tab-btn">ตารางเรียน</button>
+        <button onclick="switchTab('kanban')" data-tab="kanban" class="tab-btn">
+          งาน &amp; โปรเจกต์
+          <span class="kanban-badge badge-dot hidden -top-1 -right-1"></span>
         </button>
-        <button onclick="switchTab('kanban')" id="tab-btn-kanban" class="tab-btn shrink-0 whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 hover:text-slate-900">
-          งาน & โปรเจกต์
-        </button>
-        <button onclick="switchTab('pomodoro')" id="tab-btn-pomodoro" class="tab-btn shrink-0 whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 hover:text-slate-900">
-          จับเวลา Pomodoro
-        </button>
-        <button onclick="switchTab('gpa')" id="tab-btn-gpa" class="tab-btn shrink-0 whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 hover:text-slate-900">
-          คำนวณเกรด (GPA)
-        </button>
+        <button onclick="switchTab('pomodoro')" data-tab="pomodoro" class="tab-btn">Pomodoro</button>
+        <button onclick="switchTab('gpa')" data-tab="gpa" class="tab-btn">คำนวณเกรด</button>
       </nav>
+
+      <div class="flex items-center gap-1">
+        <button onclick="toggleTheme()" class="icon-btn" aria-label="สลับโหมดมืด/สว่าง" title="สลับโหมดมืด/สว่าง">
+          <i data-lucide="moon" class="w-5 h-5 dark:hidden"></i>
+          <i data-lucide="sun" class="w-5 h-5 hidden dark:block"></i>
+        </button>
+        <button onclick="openModal('settings-modal')" class="icon-btn" aria-label="ตั้งค่า" title="ตั้งค่าและสำรองข้อมูล">
+          <i data-lucide="settings" class="w-5 h-5"></i>
+        </button>
+      </div>
     </div>
   </header>
 
-  <!-- Main Content Container -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+  <!-- ===== Main ===== -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-28 md:py-8 flex-1 w-full">
 
-    <!-- 1. SCHEDULE SECTION -->
-    <section id="tab-schedule" class="space-y-6">
+    <!-- 1. SCHEDULE -->
+    <section id="tab-schedule" class="space-y-5">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 class="text-2xl font-bold text-slate-900">ตารางเรียนและห้องเรียน</h2>
-          <p class="text-sm text-slate-500">บันทึกวิชาเรียน ห้องเรียน และตรวจสอบคาบเรียนถัดไป</p>
+          <h2 class="text-2xl font-bold heading">ตารางเรียนและห้องเรียน</h2>
+          <p class="text-sm muted">บันทึกวิชาเรียน ห้องเรียน และดูคาบเรียนถัดไป</p>
         </div>
-        <button onclick="openModal('schedule-modal')" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium shadow-sm transition">
+        <button onclick="openScheduleModal()" class="btn-primary">
           <i data-lucide="plus" class="w-4 h-4"></i> เพิ่มคาบเรียน
         </button>
       </div>
 
-      <!-- Schedule Table / Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-5 gap-4" id="schedule-grid">
-        <!-- วันจันทร์ - ศุกร์ จะถูก render ด้วย JS -->
-      </div>
+      <!-- คาบเรียนถัดไป -->
+      <div id="next-class" class="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md"></div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4" id="schedule-grid"></div>
     </section>
 
-    <!-- 2. KANBAN BOARD SECTION -->
-    <section id="tab-kanban" class="hidden space-y-6">
+    <!-- 2. KANBAN -->
+    <section id="tab-kanban" class="hidden space-y-5">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 class="text-2xl font-bold text-slate-900">ติดตามงานและการบ้าน (Kanban)</h2>
-          <p class="text-sm text-slate-500">คลิกปุ่ม ◀ ⚡ ▶ บนการ์ดเพื่อเปลี่ยนสถานะงาน</p>
+          <h2 class="text-2xl font-bold heading">ติดตามงานและการบ้าน</h2>
+          <p class="text-sm muted">เรียงตามวันส่ง แตะการ์ดเพื่อแก้ไข และกดปุ่มด้านล่างการ์ดเพื่อเปลี่ยนสถานะ</p>
         </div>
-        <button onclick="openModal('task-modal')" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium shadow-sm transition">
-          <i data-lucide="plus" class="w-4 h-4"></i> มอบหมายงานใหม่
+        <button onclick="openTaskModal()" class="btn-primary">
+          <i data-lucide="plus" class="w-4 h-4"></i> เพิ่มงานใหม่
         </button>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <!-- To Do -->
-        <div class="bg-slate-100/70 p-4 rounded-2xl border border-slate-200/80">
-          <div class="flex items-center justify-between mb-4">
-            <span class="font-semibold text-slate-700 flex items-center gap-2">
-              <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> ยังไม่เริ่ม (To Do)
-            </span>
-            <span id="count-todo" class="text-xs bg-slate-200 text-slate-700 font-semibold px-2 py-0.5 rounded-full">0</span>
-          </div>
-          <div id="col-todo" class="space-y-3 min-h-[250px]"></div>
-        </div>
+      <div id="task-summary" class="flex flex-wrap gap-2 text-sm"></div>
 
-        <!-- In Progress -->
-        <div class="bg-slate-100/70 p-4 rounded-2xl border border-slate-200/80">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div class="bg-slate-100/70 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800">
           <div class="flex items-center justify-between mb-4">
-            <span class="font-semibold text-slate-700 flex items-center gap-2">
-              <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> กำลังทำ (In Progress)
+            <span class="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> ยังไม่เริ่ม
             </span>
-            <span id="count-progress" class="text-xs bg-slate-200 text-slate-700 font-semibold px-2 py-0.5 rounded-full">0</span>
+            <span id="count-todo" class="text-xs bg-slate-200 dark:bg-slate-800 font-semibold px-2 py-0.5 rounded-full">0</span>
           </div>
-          <div id="col-progress" class="space-y-3 min-h-[250px]"></div>
+          <div id="col-todo" class="space-y-3 md:min-h-[200px]"></div>
         </div>
-
-        <!-- Done -->
-        <div class="bg-slate-100/70 p-4 rounded-2xl border border-slate-200/80">
+        <div class="bg-slate-100/70 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800">
           <div class="flex items-center justify-between mb-4">
-            <span class="font-semibold text-slate-700 flex items-center gap-2">
-              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> เสร็จแล้ว (Done)
+            <span class="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> กำลังทำ
             </span>
-            <span id="count-done" class="text-xs bg-slate-200 text-slate-700 font-semibold px-2 py-0.5 rounded-full">0</span>
+            <span id="count-progress" class="text-xs bg-slate-200 dark:bg-slate-800 font-semibold px-2 py-0.5 rounded-full">0</span>
           </div>
-          <div id="col-done" class="space-y-3 min-h-[250px]"></div>
+          <div id="col-progress" class="space-y-3 md:min-h-[200px]"></div>
+        </div>
+        <div class="bg-slate-100/70 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+          <div class="flex items-center justify-between mb-4">
+            <span class="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> เสร็จแล้ว
+            </span>
+            <span id="count-done" class="text-xs bg-slate-200 dark:bg-slate-800 font-semibold px-2 py-0.5 rounded-full">0</span>
+          </div>
+          <div id="col-done" class="space-y-3 md:min-h-[200px]"></div>
         </div>
       </div>
     </section>
 
-    <!-- 3. POMODORO SECTION -->
-    <section id="tab-pomodoro" class="hidden space-y-6">
-      <div class="max-w-xl mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm text-center">
-        <h2 class="text-2xl font-bold text-slate-900 mb-1">Pomodoro Focus Timer</h2>
-        <p class="text-sm text-slate-500 mb-6">ตั้งสมาธิกับการอ่านหนังสือเป็นรอบเวลา</p>
+    <!-- 3. POMODORO -->
+    <section id="tab-pomodoro" class="hidden space-y-5">
+      <div class="max-w-xl mx-auto card p-6 sm:p-8 text-center">
+        <h2 class="text-2xl font-bold heading mb-1">Pomodoro Focus Timer</h2>
+        <p class="text-sm muted mb-5">โฟกัสเป็นรอบ สลับกับพักสั้น และพักยาวทุก ๆ <span id="long-every-label">4</span> รอบ</p>
 
-        <div class="mb-6 flex justify-center gap-3">
-          <input type="text" id="pomodoro-subject" placeholder="ระบุวิชาที่กำลังอ่าน เช่น Data Structure" class="w-full max-w-xs px-4 py-2 text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <div class="flex justify-center gap-1 mb-5" role="tablist">
+          <button onclick="selectMode('focus')" data-mode="focus" class="pill">โฟกัส</button>
+          <button onclick="selectMode('short')" data-mode="short" class="pill">พักสั้น</button>
+          <button onclick="selectMode('long')" data-mode="long" class="pill">พักยาว</button>
         </div>
 
-        <!-- Countdown Display -->
-        <div class="py-8">
-          <div id="timer-display" class="text-6xl sm:text-7xl font-mono font-bold tracking-tight text-slate-800">
-            25:00
+        <div class="mb-2 flex justify-center">
+          <input type="text" id="pomodoro-subject" list="subject-list" oninput="savePomoSubject()" placeholder="ระบุวิชาที่กำลังอ่าน เช่น Data Structure" class="input max-w-xs text-center" />
+          <datalist id="subject-list"></datalist>
+        </div>
+
+        <!-- วงกลมนับถอยหลัง -->
+        <div class="relative w-64 h-64 sm:w-72 sm:h-72 mx-auto my-4">
+          <svg viewBox="0 0 240 240" class="w-full h-full -rotate-90">
+            <circle cx="120" cy="120" r="108" fill="none" stroke-width="10" class="stroke-slate-100 dark:stroke-slate-800" />
+            <circle id="timer-ring" cx="120" cy="120" r="108" fill="none" stroke-width="10" stroke-linecap="round" class="stroke-indigo-600 transition-[stroke-dashoffset] duration-500" />
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <div id="timer-display" class="text-6xl sm:text-7xl font-mono font-bold tracking-tight heading">25:00</div>
+            <p id="timer-status" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 mt-1">โฟกัส</p>
+            <p id="timer-round" class="text-xs muted mt-1">รอบที่ 1</p>
           </div>
-          <p id="timer-status" class="text-sm font-medium text-indigo-600 mt-2">รอบโฟกัส (Focus Time)</p>
         </div>
 
-        <!-- Timer Controls -->
-        <div class="flex justify-center items-center gap-4">
-          <button id="btn-toggle-timer" onclick="toggleTimer()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-2xl font-semibold transition shadow-md">
-            เริ่มจับเวลา
+        <div class="flex justify-center items-center gap-3">
+          <button onclick="resetTimer()" class="btn-secondary !px-3" aria-label="รีเซ็ต" title="รีเซ็ต">
+            <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
           </button>
-          <button onclick="resetTimer()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-3 rounded-2xl font-medium transition">
-            รีเซ็ต
+          <button id="btn-toggle-timer" onclick="toggleTimer()" class="btn-primary !px-10 !py-3 !rounded-2xl text-base min-w-[170px]">เริ่มจับเวลา</button>
+          <button onclick="skipSession()" class="btn-secondary !px-3" aria-label="ข้ามรอบนี้" title="ข้ามไปรอบถัดไป">
+            <i data-lucide="skip-forward" class="w-5 h-5"></i>
           </button>
         </div>
+
+        <div id="notify-status" class="mt-5 text-xs muted"></div>
+
+        <details class="mt-5 text-left group">
+          <summary class="cursor-pointer select-none text-sm font-medium text-slate-700 dark:text-slate-200 flex items-center gap-2">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> ตั้งค่าเวลา
+          </summary>
+          <div class="grid grid-cols-2 gap-3 mt-3">
+            <div><label class="label" for="pomo-focus">โฟกัส (นาที)</label><input id="pomo-focus" type="number" min="1" max="120" class="input" onchange="savePomoSettings()" /></div>
+            <div><label class="label" for="pomo-short">พักสั้น (นาที)</label><input id="pomo-short" type="number" min="1" max="60" class="input" onchange="savePomoSettings()" /></div>
+            <div><label class="label" for="pomo-long">พักยาว (นาที)</label><input id="pomo-long" type="number" min="1" max="60" class="input" onchange="savePomoSettings()" /></div>
+            <div><label class="label" for="pomo-every">พักยาวทุก ๆ (รอบ)</label><input id="pomo-every" type="number" min="2" max="10" class="input" onchange="savePomoSettings()" /></div>
+          </div>
+        </details>
       </div>
 
-      <!-- Time Log Stats -->
-      <div class="max-w-xl mx-auto bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <h3 class="text-base font-semibold text-slate-800 mb-3">สถิติเวลาสะสมในแต่ละวิชา (นาที)</h3>
-        <div id="study-stats-list" class="space-y-2 text-sm">
-          <p class="text-slate-400">ยังไม่มีประวัติการจับเวลา</p>
+      <div class="max-w-xl mx-auto card p-6">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-base font-semibold heading">เวลาอ่านสะสมแต่ละวิชา</h3>
+          <button onclick="clearStudyStats()" class="text-xs muted hover:text-rose-500">ล้างสถิติ</button>
         </div>
+        <div id="study-stats-list" class="space-y-3 text-sm"></div>
       </div>
     </section>
 
-    <!-- 4. GPA CALCULATOR SECTION -->
-    <section id="tab-gpa" class="hidden space-y-6">
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Input & Table -->
-        <div class="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-          <div class="flex items-center justify-between">
-            <h3 class="text-lg font-bold text-slate-900">คำนวณเกรดเทอมปัจจุบัน</h3>
-            <button onclick="addGpaRow()" class="text-sm bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-3 py-1.5 rounded-lg font-medium transition">
+    <!-- 4. GPA -->
+    <section id="tab-gpa" class="hidden space-y-5">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div class="lg:col-span-2 card p-5 sm:p-6 space-y-4">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <h3 class="text-lg font-bold heading">คำนวณเกรดเทอมปัจจุบัน</h3>
+              <p class="text-xs muted">คำนวณให้อัตโนมัติ และบันทึกรายวิชาไว้ให้</p>
+            </div>
+            <button onclick="addGpaRow()" class="text-sm bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 px-3 py-1.5 rounded-lg font-medium transition whitespace-nowrap">
               + เพิ่มวิชา
             </button>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto -mx-1 px-1">
             <table class="w-full text-left text-sm">
               <thead>
-                <tr class="border-b text-slate-500">
-                  <th class="pb-2">ชื่อวิชา</th>
-                  <th class="pb-2 w-24">หน่วยกิต</th>
-                  <th class="pb-2 w-28">เกรดที่คาด</th>
-                  <th class="pb-2 w-12"></th>
+                <tr class="border-b border-slate-200 dark:border-slate-800 muted">
+                  <th class="pb-2 font-medium">ชื่อวิชา</th>
+                  <th class="pb-2 font-medium w-20">หน่วยกิต</th>
+                  <th class="pb-2 font-medium w-28">เกรดที่คาด</th>
+                  <th class="pb-2 w-8"></th>
                 </tr>
               </thead>
-              <tbody id="gpa-rows" class="divide-y divide-slate-100">
-                <!-- แถววิชาจะ render ที่นี่ -->
-              </tbody>
+              <tbody id="gpa-rows" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
             </table>
           </div>
-          <button onclick="calculateGPA()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl font-medium transition">
-            คำนวณ GPA ปัจจุบัน
-          </button>
         </div>
 
-        <!-- Simulator & Output -->
-        <div class="space-y-6">
-          <div class="bg-indigo-900 text-white p-6 rounded-2xl shadow-md">
-            <span class="text-sm text-indigo-200">GPA เทอมนี้ที่คำนวณได้</span>
+        <div class="space-y-5">
+          <div class="bg-indigo-900 dark:bg-indigo-950 dark:border dark:border-indigo-900 text-white p-6 rounded-2xl shadow-md">
+            <span class="text-sm text-indigo-200">GPA เทอมนี้</span>
             <div id="gpa-result" class="text-5xl font-black mt-2">0.00</div>
             <p class="text-xs text-indigo-300 mt-2" id="gpa-total-credits">รวมทั้งหมด 0 หน่วยกิต</p>
+            <p class="text-xs text-indigo-100 mt-3 hidden" id="gpa-projected"></p>
           </div>
 
-          <!-- Target Simulator -->
-          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-            <h4 class="font-bold text-slate-800 text-base">GPA Simulator (เป้าหมาย)</h4>
+          <div class="card p-6 space-y-4">
+            <h4 class="font-bold heading text-base">GPA Simulator (เป้าหมาย)</h4>
             <div class="space-y-3 text-sm">
-              <div>
-                <label class="block text-slate-600 text-xs mb-1">GPAX สะสมเดิม</label>
-                <input type="number" step="0.01" id="sim-current-gpax" placeholder="เช่น 3.20" class="w-full border border-slate-300 p-2 rounded-lg text-sm" />
-              </div>
-              <div>
-                <label class="block text-slate-600 text-xs mb-1">หน่วยกิตสะสมเดิม</label>
-                <input type="number" id="sim-current-credits" placeholder="เช่น 60" class="w-full border border-slate-300 p-2 rounded-lg text-sm" />
-              </div>
-              <div>
-                <label class="block text-slate-600 text-xs mb-1">เป้าหมาย GPAX รวมที่ต้องการ</label>
-                <input type="number" step="0.01" id="sim-target-gpax" placeholder="เช่น 3.50" class="w-full border border-slate-300 p-2 rounded-lg text-sm" />
-              </div>
-              <div>
-                <label class="block text-slate-600 text-xs mb-1">หน่วยกิตที่จะลงในเทอมนี้</label>
-                <input type="number" id="sim-term-credits" placeholder="เช่น 18" class="w-full border border-slate-300 p-2 rounded-lg text-sm" />
-              </div>
-              <button onclick="simulateTarget()" class="w-full bg-slate-900 hover:bg-slate-800 text-white py-2 rounded-lg font-medium transition text-sm">
+              <div><label class="label" for="sim-current-gpax">GPAX สะสมเดิม</label><input type="number" step="0.01" min="0" max="4" id="sim-current-gpax" oninput="saveGpaSim()" placeholder="เช่น 3.20" class="input" /></div>
+              <div><label class="label" for="sim-current-credits">หน่วยกิตสะสมเดิม</label><input type="number" min="0" id="sim-current-credits" oninput="saveGpaSim()" placeholder="เช่น 60" class="input" /></div>
+              <div><label class="label" for="sim-target-gpax">เป้าหมาย GPAX รวมที่ต้องการ</label><input type="number" step="0.01" min="0" max="4" id="sim-target-gpax" oninput="saveGpaSim()" placeholder="เช่น 3.50" class="input" /></div>
+              <div><label class="label" for="sim-term-credits">หน่วยกิตที่จะลงในเทอมนี้</label><input type="number" min="1" id="sim-term-credits" oninput="saveGpaSim()" placeholder="เช่น 18" class="input" /></div>
+              <button onclick="simulateTarget()" class="w-full bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white dark:text-slate-900 text-white py-2 rounded-lg font-medium transition text-sm">
                 วิเคราะห์เกรดที่ต้องทำได้
               </button>
-              <div id="sim-result" class="p-3 bg-slate-50 rounded-xl text-slate-700 text-xs leading-relaxed border border-slate-200">
+              <div id="sim-result" class="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-slate-700 dark:text-slate-300 text-xs leading-relaxed border border-slate-200 dark:border-slate-700">
                 ผลการประเมินจะแสดงที่นี่
               </div>
             </div>
@@ -217,74 +276,123 @@
         </div>
       </div>
     </section>
-
   </main>
 
-  <!-- MODAL: ADD SCHEDULE -->
-  <div id="schedule-modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
-    <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
-      <h3 class="text-lg font-bold text-slate-900">เพิ่มคาบเรียนใหม่</h3>
+  <!-- ===== Bottom navigation (มือถือ) ===== -->
+  <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 grid grid-cols-4 safe-bottom" aria-label="เมนูหลัก">
+    <button onclick="switchTab('schedule')" data-tab="schedule" class="bottom-tab"><i data-lucide="calendar-days" class="w-5 h-5"></i>ตารางเรียน</button>
+    <button onclick="switchTab('kanban')" data-tab="kanban" class="bottom-tab">
+      <i data-lucide="list-todo" class="w-5 h-5"></i>งาน
+      <span class="kanban-badge badge-dot hidden top-1 left-1/2 ml-2"></span>
+    </button>
+    <button onclick="switchTab('pomodoro')" data-tab="pomodoro" class="bottom-tab"><i data-lucide="timer" class="w-5 h-5"></i>Pomodoro</button>
+    <button onclick="switchTab('gpa')" data-tab="gpa" class="bottom-tab"><i data-lucide="calculator" class="w-5 h-5"></i>เกรด</button>
+  </nav>
+
+  <!-- ===== Toasts ===== -->
+  <div id="toast-container" class="fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-6 z-[60] w-[calc(100%-2rem)] max-w-sm space-y-2 pointer-events-none" aria-live="polite"></div>
+
+  <!-- ===== MODAL: SCHEDULE ===== -->
+  <div id="schedule-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('schedule-modal')">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl safe-bottom-pad">
+      <h3 id="schedule-modal-title" class="text-lg font-bold heading">เพิ่มคาบเรียนใหม่</h3>
       <div class="space-y-3 text-sm">
         <div>
-          <label class="block text-slate-600 text-xs mb-1">ชื่อวิชา / รหัสวิชา</label>
-          <input type="text" id="sched-name" class="w-full border border-slate-300 p-2 rounded-lg" placeholder="เช่น Database Systems" />
+          <label class="label" for="sched-name">ชื่อวิชา / รหัสวิชา</label>
+          <input type="text" id="sched-name" class="input" placeholder="เช่น Database Systems" />
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="block text-slate-600 text-xs mb-1">วัน</label>
-            <select id="sched-day" class="w-full border border-slate-300 p-2 rounded-lg">
-              <option value="จันทร์">จันทร์</option>
-              <option value="อังคาร">อังคาร</option>
-              <option value="พุธ">พุธ</option>
-              <option value="พฤหัสบดี">พฤหัสบดี</option>
-              <option value="ศุกร์">ศุกร์</option>
-            </select>
+            <label class="label" for="sched-day">วัน</label>
+            <select id="sched-day" class="input"></select>
           </div>
           <div>
-            <label class="block text-slate-600 text-xs mb-1">ห้องเรียน</label>
-            <input type="text" id="sched-room" class="w-full border border-slate-300 p-2 rounded-lg" placeholder="เช่น Lab 402" />
+            <label class="label" for="sched-room">ห้องเรียน</label>
+            <input type="text" id="sched-room" class="input" placeholder="เช่น Lab 402" />
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="block text-slate-600 text-xs mb-1">เวลาเริ่ม</label>
-            <input type="time" id="sched-start" class="w-full border border-slate-300 p-2 rounded-lg" value="09:00" />
+            <label class="label" for="sched-start">เวลาเริ่ม</label>
+            <input type="time" id="sched-start" class="input" value="09:00" />
           </div>
           <div>
-            <label class="block text-slate-600 text-xs mb-1">เวลาเลิก</label>
-            <input type="time" id="sched-end" class="w-full border border-slate-300 p-2 rounded-lg" value="12:00" />
+            <label class="label" for="sched-end">เวลาเลิก</label>
+            <input type="time" id="sched-end" class="input" value="12:00" />
           </div>
         </div>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <button onclick="closeModal('schedule-modal')" class="px-4 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-100">ยกเลิก</button>
+        <button onclick="closeModal('schedule-modal')" class="btn-ghost">ยกเลิก</button>
         <button onclick="saveSchedule()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">บันทึก</button>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: ADD TASK -->
-  <div id="task-modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center p-4 z-50">
-    <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
-      <h3 class="text-lg font-bold text-slate-900">เพิ่มการบ้าน / โครงงาน</h3>
+  <!-- ===== MODAL: TASK ===== -->
+  <div id="task-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('task-modal')">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl safe-bottom-pad">
+      <h3 id="task-modal-title" class="text-lg font-bold heading">เพิ่มการบ้าน / โครงงาน</h3>
       <div class="space-y-3 text-sm">
         <div>
-          <label class="block text-slate-600 text-xs mb-1">ชื่องาน</label>
-          <input type="text" id="task-title" class="w-full border border-slate-300 p-2 rounded-lg" placeholder="เช่น ทำสไลด์พรีเซนต์โปรเจกต์" />
+          <label class="label" for="task-title">ชื่องาน</label>
+          <input type="text" id="task-title" class="input" placeholder="เช่น ทำสไลด์พรีเซนต์โปรเจกต์" />
         </div>
         <div>
-          <label class="block text-slate-600 text-xs mb-1">วิชา</label>
-          <input type="text" id="task-subject" class="w-full border border-slate-300 p-2 rounded-lg" placeholder="เช่น SE 101" />
+          <label class="label" for="task-subject">วิชา</label>
+          <input type="text" id="task-subject" list="subject-list" class="input" placeholder="เช่น SE 101" />
         </div>
         <div>
-          <label class="block text-slate-600 text-xs mb-1">กำหนดส่ง (Due Date)</label>
-          <input type="date" id="task-due" class="w-full border border-slate-300 p-2 rounded-lg" />
+          <label class="label" for="task-due">กำหนดส่ง</label>
+          <input type="date" id="task-due" class="input" />
         </div>
       </div>
       <div class="flex justify-end gap-2 pt-2">
-        <button onclick="closeModal('task-modal')" class="px-4 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-100">ยกเลิก</button>
-        <button onclick="saveTask()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">เพิ่มงาน</button>
+        <button onclick="closeModal('task-modal')" class="btn-ghost">ยกเลิก</button>
+        <button onclick="saveTask()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">บันทึก</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: SETTINGS ===== -->
+  <div id="settings-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('settings-modal')">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-6 shadow-xl max-h-[90vh] overflow-y-auto safe-bottom-pad">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold heading">ตั้งค่า</h3>
+        <button onclick="closeModal('settings-modal')" class="icon-btn" aria-label="ปิด"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="text-sm font-semibold heading">ธีม</h4>
+        <div class="flex gap-2">
+          <button onclick="setTheme('light')" data-theme-opt="light" class="theme-opt"><i data-lucide="sun" class="w-5 h-5"></i>สว่าง</button>
+          <button onclick="setTheme('dark')" data-theme-opt="dark" class="theme-opt"><i data-lucide="moon" class="w-5 h-5"></i>มืด</button>
+          <button onclick="setTheme('system')" data-theme-opt="system" class="theme-opt"><i data-lucide="monitor-smartphone" class="w-5 h-5"></i>ตามเครื่อง</button>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <h4 class="text-sm font-semibold heading">สำรองข้อมูล</h4>
+        <p class="text-xs muted">ข้อมูลเก็บอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น ควรส่งออกไฟล์สำรองไว้เป็นระยะ หรือใช้ย้ายข้อมูลไปเครื่องอื่น</p>
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="exportData()" class="btn-secondary text-sm"><i data-lucide="download" class="w-4 h-4"></i> ส่งออก</button>
+          <button onclick="document.getElementById('import-file').click()" class="btn-secondary text-sm"><i data-lucide="upload" class="w-4 h-4"></i> นำเข้า</button>
+        </div>
+        <input type="file" id="import-file" accept="application/json,.json" class="hidden" onchange="importData(this)" />
+        <button onclick="clearAllData()" class="w-full text-xs text-rose-500 hover:text-rose-600 py-2">ล้างข้อมูลทั้งหมด</button>
+      </div>
+
+      <div id="install-section" class="space-y-2">
+        <h4 class="text-sm font-semibold heading">ติดตั้งเป็นแอป</h4>
+        <button id="install-btn" onclick="installApp()" class="btn-primary w-full text-sm hidden"><i data-lucide="smartphone" class="w-4 h-4"></i> ติดตั้ง StudyFlow</button>
+        <p id="install-hint" class="text-xs muted leading-relaxed">
+          <b>iPhone/iPad:</b> เปิดใน Safari แล้วแตะปุ่มแชร์ <i data-lucide="share" class="w-3.5 h-3.5 inline"></i> → "เพิ่มไปยังหน้าจอโฮม"<br />
+          <b>Android:</b> เปิดใน Chrome แล้วแตะเมนู ⋮ → "ติดตั้งแอป" หรือ "เพิ่มลงในหน้าจอหลัก"
+        </p>
+        <p id="installed-note" class="text-xs text-emerald-600 dark:text-emerald-400 hidden">✓ กำลังใช้งานแบบแอปอยู่ ใช้งานได้แม้ไม่มีอินเทอร์เน็ต</p>
+      </div>
+
+      <p class="text-[11px] text-center muted">StudyFlow v2</p>
     </div>
   </div>
 
