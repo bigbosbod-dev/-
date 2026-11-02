@@ -1733,10 +1733,54 @@ function renderInstallSection() {
   if (standalone) $('install-btn').classList.add('hidden');
 }
 
+// ---------- อัปเดตแอปอัตโนมัติ ----------
+// เมื่อมี sw.js เวอร์ชันใหม่ (เปลี่ยนเลข CACHE) service worker ใหม่จะเข้ามาคุมหน้าเว็บ
+// แล้วเราจะรีโหลดหน้าให้ แต่จะรอจนกว่าผู้ใช้ไม่ได้ทำอะไรค้างอยู่
+let updatePending = false;
+
+function isSafeToReload() {
+  const el = document.activeElement;
+  const typing = el && ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName);
+  const modalOpen = !!document.querySelector('.modal.flex');
+  const sharedViewOpen = !!document.getElementById('shared-view') && !document.getElementById('shared-view').classList.contains('hidden');
+  return !isRunning && !typing && !modalOpen && !sharedViewOpen;
+}
+
+function reloadIfUpdatePending() {
+  if (!updatePending || !isSafeToReload()) return;
+  updatePending = false;
+  try { sessionStorage.setItem('just_updated', '1'); } catch (e) { /* ignore */ }
+  location.reload();
+}
+
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  // ถ้าตอนเปิดหน้ายังไม่มี service worker คุมอยู่ (เปิดครั้งแรก) ไม่ต้องรีโหลด
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;
+    updatePending = true;
+    reloadIfUpdatePending();
+  });
+
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch((err) => console.warn('ลงทะเบียน service worker ไม่สำเร็จ', err));
   });
+
+  // ทุกครั้งที่กลับมาที่แอป: เช็กว่ามีเวอร์ชันใหม่ไหม
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    navigator.serviceWorker.getRegistration().then((reg) => reg && reg.update()).catch(() => {});
+    reloadIfUpdatePending();
+  });
+  // ถ้ามีอัปเดตรออยู่ ลองใหม่ทุก ๆ 5 วินาที (เช่น หลังปิดหน้าต่างหรือหยุดจับเวลา)
+  setInterval(reloadIfUpdatePending, 5000);
+
+  try {
+    if (sessionStorage.getItem('just_updated')) {
+      sessionStorage.removeItem('just_updated');
+      window.addEventListener('load', () => toast('อัปเดตแอปเป็นเวอร์ชันล่าสุดแล้ว ✨', 'success', 5000));
+    }
+  } catch (e) { /* ignore */ }
 }
 
 // =====================================================================
