@@ -505,19 +505,16 @@
         <p id="sync-unavailable" class="hidden text-xs muted">ตอนนี้เชื่อมต่อระบบซิงก์ไม่ได้ (อาจไม่มีอินเทอร์เน็ต) ลองเปิดแอปใหม่อีกครั้งเมื่อออนไลน์</p>
 
         <div id="sync-signed-out" class="hidden space-y-2">
-          <p class="text-xs muted">ล็อกอินด้วยอีเมลเดียวกันทุกเครื่อง ข้อมูลจะตรงกันทั้งมือถือและคอม ไม่ต้องตั้งรหัสผ่าน</p>
-          <div class="flex gap-2">
-            <input id="sync-email-input" type="email" autocomplete="email" inputmode="email" placeholder="อีเมลของคุณ" class="input" onkeydown="if (event.key === 'Enter') sendLoginEmail()" />
-            <button id="sync-send-btn" onclick="sendLoginEmail()" class="btn-primary !py-2 text-sm whitespace-nowrap">ส่งอีเมล</button>
+          <p class="text-xs muted">ล็อกอินด้วยอีเมลและรหัสผ่านเดียวกันทุกเครื่อง ข้อมูลจะตรงกันทั้งมือถือและคอม</p>
+          <input id="sync-email-input" type="email" autocomplete="email" inputmode="email" placeholder="อีเมล" class="input" />
+          <input id="sync-password-input" type="password" autocomplete="current-password" placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)" class="input" onkeydown="if (event.key === 'Enter') signInWithPassword()" />
+          <div class="grid grid-cols-2 gap-2">
+            <button id="sync-signin-btn" onclick="signInWithPassword()" class="btn-primary !py-2 text-sm">เข้าสู่ระบบ</button>
+            <button id="sync-signup-btn" onclick="signUpWithPassword()" class="btn-secondary !py-2 text-sm">สมัครใหม่</button>
           </div>
-          <div id="sync-code-step" class="hidden space-y-2 pt-1">
-            <p class="text-xs text-slate-700 dark:text-slate-300">ส่งอีเมลไปที่ <b id="sync-sent-to"></b> แล้ว แตะลิงก์ในอีเมลเพื่อเข้าสู่ระบบ หรือถ้าในอีเมลมีรหัสตัวเลข กรอกตรงนี้ได้เลย</p>
-            <div class="flex gap-2">
-              <input id="sync-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="รหัสจากอีเมล" class="input tracking-widest" onkeydown="if (event.key === 'Enter') verifyLoginCode()" />
-              <button onclick="verifyLoginCode()" class="btn-secondary !py-2 text-sm whitespace-nowrap">ยืนยัน</button>
-            </div>
-            <p class="text-[11px] muted">💡 ถ้าใช้แบบติดตั้งเป็นแอปบน iPhone ให้ใช้รหัสตัวเลข เพราะลิงก์จะเปิดใน Safari แทนที่จะเปิดในแอป · ไม่เจออีเมล ลองดูในโฟลเดอร์จดหมายขยะ · <button onclick="cancelLoginCode()" class="underline">เปลี่ยนอีเมล</button></p>
-          </div>
+          <p class="text-[11px] muted leading-relaxed">ครั้งแรกกด <b>"สมัครใหม่"</b> ถ้าระบบส่งอีเมลยืนยันมา ให้กดลิงก์ในอีเมล 1 ครั้ง แล้วกลับมากด <b>"เข้าสู่ระบบ"</b> · เครื่องอื่นกด "เข้าสู่ระบบ" ได้เลย<br />
+            <button onclick="resetPassword()" class="underline">ลืมรหัสผ่าน</button> · <button id="sync-send-btn" onclick="sendLoginEmail()" class="underline">ขอลิงก์เข้าสู่ระบบทางอีเมลแทน</button></p>
+          <p id="sync-code-step" class="hidden text-xs text-slate-700 dark:text-slate-300">ส่งลิงก์ไปที่ <b id="sync-sent-to"></b> แล้ว แตะลิงก์ในอีเมลบนเบราว์เซอร์เดียวกับที่ใช้แอปนี้ (ไม่เจอให้ดูในจดหมายขยะ)</p>
         </div>
 
         <div id="sync-signed-in" class="hidden space-y-2">

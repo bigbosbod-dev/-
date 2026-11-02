@@ -2,7 +2,7 @@
 
 // =====================================================================
 // ซิงก์ข้อมูลข้ามเครื่องด้วย Supabase
-// - ล็อกอินด้วยอีเมล (ลิงก์ หรือรหัส 6 หลักจากอีเมล)
+// - ล็อกอินด้วยอีเมล + รหัสผ่าน (หรือขอลิงก์เข้าสู่ระบบทางอีเมล)
 // - เก็บข้อมูลทั้งหมดเป็นก้อนเดียวต่อผู้ใช้ในตาราง user_data (ป้องกันด้วย RLS: เห็นเฉพาะของตัวเอง)
 // - ข้อมูลที่แก้ล่าสุดเป็นฝ่ายชนะ ยกเว้นตอนเชื่อมเครื่องครั้งแรกที่จะถามก่อน
 // =====================================================================
@@ -93,33 +93,85 @@ async function sendLoginEmail() {
     if (error) throw error;
     pendingEmail = email;
     renderSyncUI();
-    toast('ส่งอีเมลแล้ว เปิดอีเมลเพื่อเข้าสู่ระบบ', 'success', 5000);
+    toast('ส่งลิงก์แล้ว เปิดอีเมลแล้วกดลิงก์เพื่อเข้าสู่ระบบ', 'success', 6000);
   } catch (err) {
-    const msg = String(err.message || err);
-    if (/rate limit/i.test(msg)) toast('ส่งอีเมลบ่อยเกินไป ระบบอีเมลฟรีส่งได้ประมาณ 2 ฉบับต่อชั่วโมง รอสักพักแล้วลองใหม่ (ถ้าเพิ่งได้อีเมลไป ใช้ลิงก์/รหัสในอีเมลนั้นได้เลย)', 'error', 9000);
-    else toast(`ส่งอีเมลไม่สำเร็จ: ${msg}`, 'error', 6000);
+    toast(`ส่งอีเมลไม่สำเร็จ: ${authErrorText(err)}`, 'error', 8000);
   } finally {
     btn.disabled = false;
   }
 }
 
-async function verifyLoginCode() {
-  if (!sb || !pendingEmail) return;
-  const token = $('sync-code-input').value.replace(/\s/g, '');
-  if (!/^\d{6,10}$/.test(token)) return toast('กรุณากรอกรหัสตัวเลขจากอีเมล', 'error');
-  try {
-    const { error } = await sb.auth.verifyOtp({ email: pendingEmail, token, type: 'email' });
-    if (error) throw error;
-    pendingEmail = '';
-    $('sync-code-input').value = '';
-  } catch (err) {
-    toast(`รหัสไม่ถูกต้องหรือหมดอายุ: ${err.message || err}`, 'error', 6000);
-  }
+const AUTH_ERRORS = [
+  [/invalid login credentials/i, 'อีเมลหรือรหัสผ่านไม่ถูกต้อง (ถ้ายังไม่เคยสมัคร ให้กด "สมัครใหม่")'],
+  [/email not confirmed/i, 'ยังไม่ได้ยืนยันอีเมล กดลิงก์ในอีเมลยืนยันก่อน แล้วค่อยเข้าสู่ระบบ'],
+  [/already registered|already been registered/i, 'อีเมลนี้สมัครไว้แล้ว กด "เข้าสู่ระบบ" ได้เลย'],
+  [/password should be at least/i, 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร'],
+  [/rate limit/i, 'ส่งอีเมลบ่อยเกินไป ระบบอีเมลฟรีส่งได้ประมาณ 2 ฉบับต่อชั่วโมง รอสักพักแล้วลองใหม่'],
+];
+
+function authErrorText(err) {
+  const msg = String((err && err.message) || err);
+  const hit = AUTH_ERRORS.find(([re]) => re.test(msg));
+  return hit ? hit[1] : msg;
 }
 
-function cancelLoginCode() {
-  pendingEmail = '';
-  renderSyncUI();
+function readCredentials() {
+  const email = $('sync-email-input').value.trim();
+  const password = $('sync-password-input').value;
+  if (!/^\S+@\S+\.\S+$/.test(email)) { toast('กรุณากรอกอีเมลให้ถูกต้อง', 'error'); return null; }
+  if (password.length < 6) { toast('รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร', 'error'); return null; }
+  return { email, password };
+}
+
+async function withButton(id, fn) {
+  const btn = $(id);
+  if (btn) btn.disabled = true;
+  try { await fn(); } finally { if (btn) btn.disabled = false; }
+}
+
+function signInWithPassword() {
+  if (!sb) return;
+  const cred = readCredentials();
+  if (!cred) return;
+  return withButton('sync-signin-btn', async () => {
+    const { error } = await sb.auth.signInWithPassword(cred);
+    if (error) return toast(authErrorText(error), 'error', 7000);
+    $('sync-password-input').value = '';
+  });
+}
+
+function signUpWithPassword() {
+  if (!sb) return;
+  const cred = readCredentials();
+  if (!cred) return;
+  return withButton('sync-signup-btn', async () => {
+    const { data, error } = await sb.auth.signUp({ ...cred, options: { emailRedirectTo: location.origin + location.pathname } });
+    if (error) return toast(authErrorText(error), 'error', 7000);
+    // Supabase ไม่บอกตรง ๆ ว่าอีเมลนี้เคยสมัครแล้ว (กันคนเดาอีเมล) แต่จะคืน identities ว่างมาแทน
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return toast('อีเมลนี้สมัครไว้แล้ว กด "เข้าสู่ระบบ" ได้เลย', 'error', 7000);
+    }
+    $('sync-password-input').value = '';
+    if (!data.session) toast('สมัครแล้ว! เปิดอีเมลแล้วกดลิงก์ยืนยัน 1 ครั้ง จากนั้นกลับมากด "เข้าสู่ระบบ"', 'success', 10000);
+  });
+}
+
+async function resetPassword() {
+  if (!sb) return;
+  const email = $('sync-email-input').value.trim();
+  if (!/^\S+@\S+\.\S+$/.test(email)) return toast('กรอกอีเมลก่อน แล้วกด "ลืมรหัสผ่าน" อีกครั้ง', 'error');
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  if (error) return toast(authErrorText(error), 'error', 7000);
+  toast('ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่อีเมลแล้ว', 'success', 6000);
+}
+
+async function promptNewPassword() {
+  const pwd = prompt('ตั้งรหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)');
+  if (!pwd) return;
+  if (pwd.length < 6) return toast('รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร', 'error');
+  const { error } = await sb.auth.updateUser({ password: pwd });
+  if (error) return toast(authErrorText(error), 'error', 7000);
+  toast('ตั้งรหัสผ่านใหม่แล้ว', 'success');
 }
 
 async function signOutSync() {
@@ -238,6 +290,7 @@ function initSync() {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });
   sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') setTimeout(() => promptNewPassword(), 300);
     const wasSignedIn = !!currentUser;
     currentUser = session ? session.user : null;
     renderSyncUI();
