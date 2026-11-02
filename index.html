@@ -18,6 +18,12 @@
 
   <!-- ตั้งโหมดมืดก่อนหน้าเว็บแสดงผล เพื่อไม่ให้หน้าจอกะพริบเป็นสีขาว -->
   <script>
+    // ความสูงจอที่มองเห็นจริง (iPhone แบบติดตั้งเป็นแอปคำนวณ 100vh/100dvh เกินจริง)
+    function setAppHeight() { document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px'); }
+    setAppHeight();
+    window.addEventListener('resize', setAppHeight);
+    window.addEventListener('orientationchange', function () { setTimeout(setAppHeight, 300); });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) setAppHeight(); });
     try {
       var t = JSON.parse(localStorage.getItem('theme') || '"system"');
       if (t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -36,7 +42,7 @@
   <link rel="stylesheet" href="css/style.css" />
 
 </head>
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 h-screen h-[100dvh] overflow-hidden flex flex-col">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 app-shell overflow-hidden flex flex-col">
 
   <!-- ===== Header ===== -->
   <header class="bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 shrink-0 z-30 safe-top">

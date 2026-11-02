@@ -45,3 +45,7 @@ details > summary::-webkit-details-marker { display: none; }
 @media (min-width: 768px) {
   .toast-pos { top: auto; bottom: 1.5rem; }
 }
+
+/* โครงหน้าแอป: สูงเท่าจอที่มองเห็นจริง (วัดด้วย JS) หัวเว็บอยู่บน เมนูอยู่ล่าง เนื้อหาเลื่อนตรงกลาง */
+html, body { height: 100%; }
+.app-shell { height: 100vh; height: 100dvh; height: var(--app-height, 100dvh); }
