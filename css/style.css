@@ -111,3 +111,15 @@ button:active:not(:disabled) { transform: scale(0.96); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* iPhone: ช่องวันที่/เวลามีความกว้างขั้นต่ำของตัวเอง ทำให้ล้นทับช่องข้าง ๆ ในตารางหลายคอลัมน์
+   ปิดหน้าตาแบบระบบแล้วให้หดได้ตามคอลัมน์ และจัดข้อความชิดซ้ายเหมือนช่องอื่น */
+input[type="date"], input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.25rem;
+}
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value { text-align: left; }
