@@ -195,6 +195,7 @@ function sanitizeTasks(list) {
       due: DATE_RE.test(t.due) ? t.due : '',
       status: STATUSES.includes(t.status) ? t.status : 'todo',
       doneAt: t.status === 'done' && DATE_RE.test(t.doneAt) ? t.doneAt : '',
+      notes: String(t.notes || '').slice(0, 2000),
     }));
 }
 
@@ -1005,6 +1006,7 @@ function renderTasks() {
           </button>
         </div>
         <div class="text-sm font-medium heading ${task.status === 'done' ? 'line-through' : ''}">${escapeHtml(task.title)}</div>
+        ${task.notes ? `<div class="text-xs muted whitespace-pre-line line-clamp-2">${escapeHtml(task.notes)}</div>` : ''}
         <div class="flex items-center justify-between gap-2 pt-1 flex-wrap">
           <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${DUE_BADGE[info.level]}">${escapeHtml(info.text + dateText)}</span>
           <div class="flex gap-1">
@@ -1041,6 +1043,7 @@ function openTaskModal(id = null) {
   $('task-title').value = task ? task.title : '';
   $('task-subject').value = task ? task.subject : '';
   $('task-due').value = task ? task.due : '';
+  $('task-notes').value = task ? task.notes : '';
   renderTaskSubjectChips();
   openModal('task-modal');
 }
@@ -1073,13 +1076,14 @@ function saveTask() {
   const title = $('task-title').value.trim();
   const subject = $('task-subject').value.trim() || 'ทั่วไป';
   const due = $('task-due').value;
+  const notes = $('task-notes').value.trim().slice(0, 2000);
   if (!title) return toast('กรุณากรอกชื่องาน', 'error');
 
   if (editingTaskId) {
-    tasks = tasks.map((t) => (t.id === editingTaskId ? { ...t, title, subject, due } : t));
+    tasks = tasks.map((t) => (t.id === editingTaskId ? { ...t, title, subject, due, notes } : t));
     toast('แก้ไขงานแล้ว', 'success');
   } else {
-    tasks.push({ id: uid(), title, subject, due, status: 'todo' });
+    tasks.push({ id: uid(), title, subject, due, status: 'todo', notes });
     toast('เพิ่มงานแล้ว', 'success');
   }
   setStorage(KEYS.tasks, tasks);
@@ -1849,10 +1853,10 @@ function renderToday() {
     return `
       <div class="flex items-center gap-3 py-2">
         <button onclick="moveTask(${t.id}, 'done')" aria-label="ทำเสร็จแล้ว" title="ทำเสร็จแล้ว" class="w-5 h-5 rounded-md border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 shrink-0"></button>
-        <div class="min-w-0 flex-1">
+        <button onclick="openTaskModal(${t.id})" class="min-w-0 flex-1 text-left">
           <div class="text-sm font-medium heading truncate">${escapeHtml(t.title)}</div>
-          <div class="text-xs muted flex items-center gap-1.5">${subjDot(t.subject)}${escapeHtml(t.subject)}</div>
-        </div>
+          <div class="text-xs muted flex items-center gap-1.5">${subjDot(t.subject)}<span class="truncate">${escapeHtml(t.subject)}</span>${t.notes ? '<i data-lucide="sticky-note" class="w-3 h-3 shrink-0"></i>' : ''}</div>
+        </button>
         <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${DUE_BADGE[info.level]}">${escapeHtml(info.text)}</span>
       </div>`;
   }).join('') : '<p class="text-sm muted py-2">ไม่มีงานเร่งด่วน 👍</p>';

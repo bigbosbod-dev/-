@@ -452,6 +452,10 @@
           <input type="text" id="task-title" class="input" placeholder="เช่น ทำสไลด์พรีเซนต์โปรเจกต์" />
         </div>
         <div>
+          <label class="label" for="task-notes">รายละเอียด (ไม่บังคับ)</label>
+          <textarea id="task-notes" rows="3" maxlength="2000" class="input" placeholder="เช่น ส่งเป็น PDF ใน Classroom, ขั้นตอนที่ต้องทำ"></textarea>
+        </div>
+        <div>
           <label class="label" for="task-subject">วิชา</label>
           <input type="text" id="task-subject" list="subject-list" class="input" placeholder="แตะเลือกวิชาด้านล่าง หรือพิมพ์เอง" oninput="renderTaskSubjectChips()" />
           <div id="task-subject-chips" class="flex flex-wrap gap-1.5 mt-2"></div>
