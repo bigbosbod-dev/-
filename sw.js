@@ -1,6 +1,6 @@
 // Service worker ของ StudyFlow: ทำให้เปิดแอปได้แม้ไม่มีอินเทอร์เน็ต
 // เมื่อแก้ไฟล์ของแอป ให้เปลี่ยนเลขเวอร์ชันนี้ เพื่อให้แคชเก่าถูกล้าง
-const CACHE = 'studyflow-v3';
+const CACHE = 'studyflow-v4';
 
 const APP_SHELL = [
   './',
