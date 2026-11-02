@@ -1,0 +1,7 @@
+body {
+  font-family: 'Prompt', sans-serif;
+}
+
+/* ซ่อน scrollbar ของแถบเมนูบนมือถือ */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
