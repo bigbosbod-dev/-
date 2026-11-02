@@ -23,3 +23,8 @@ details > summary::-webkit-details-marker { display: none; }
   to { opacity: 1; transform: translateY(0); }
 }
 .toast { animation: toast-in 0.2s ease-out; }
+
+/* iOS Safari ซูมหน้าจอเองเมื่อแตะช่องกรอกที่ตัวอักษรเล็กกว่า 16px จึงบังคับให้ช่องกรอกทุกช่องเป็น 16px บนมือถือ */
+@media (max-width: 639px) {
+  input, select, textarea { font-size: 16px !important; }
+}

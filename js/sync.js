@@ -95,7 +95,9 @@ async function sendLoginEmail() {
     renderSyncUI();
     toast('ส่งอีเมลแล้ว เปิดอีเมลเพื่อเข้าสู่ระบบ', 'success', 5000);
   } catch (err) {
-    toast(`ส่งอีเมลไม่สำเร็จ: ${err.message || err}`, 'error', 6000);
+    const msg = String(err.message || err);
+    if (/rate limit/i.test(msg)) toast('ส่งอีเมลบ่อยเกินไป ระบบอีเมลฟรีส่งได้ประมาณ 2 ฉบับต่อชั่วโมง รอสักพักแล้วลองใหม่ (ถ้าเพิ่งได้อีเมลไป ใช้ลิงก์/รหัสในอีเมลนั้นได้เลย)', 'error', 9000);
+    else toast(`ส่งอีเมลไม่สำเร็จ: ${msg}`, 'error', 6000);
   } finally {
     btn.disabled = false;
   }

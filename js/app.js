@@ -1520,7 +1520,7 @@ const isStandalone = () => window.matchMedia('(display-mode: standalone)').match
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  $('install-btn').classList.remove('hidden');
+  if (!isStandalone()) $('install-btn').classList.remove('hidden');
 });
 
 window.addEventListener('appinstalled', () => {
@@ -1541,6 +1541,7 @@ function renderInstallSection() {
   const standalone = isStandalone();
   $('install-hint').classList.toggle('hidden', standalone);
   $('installed-note').classList.toggle('hidden', !standalone);
+  if (standalone) $('install-btn').classList.add('hidden');
 }
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
