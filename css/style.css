@@ -28,3 +28,20 @@ details > summary::-webkit-details-marker { display: none; }
 @media (max-width: 639px) {
   input, select, textarea { font-size: 16px !important; }
 }
+
+/* ---------- สีประจำวิชา ----------
+   element ที่มีคลาส .subj ได้ตัวแปร --sc-light / --sc-dark จาก style attribute
+   ตัวหนังสือยังใช้สีปกติเสมอ สีวิชาใช้แค่กับจุด แถบ และพื้นจาง ๆ */
+.subj { --sc: var(--sc-light, #94a3b8); }
+.dark .subj { --sc: var(--sc-dark, #64748b); }
+.subj-dot { background-color: var(--sc); }
+.subj-fill { background-color: var(--sc); }
+.subj-bar { border-left: 4px solid var(--sc) !important; }
+.subj-tint { background-color: color-mix(in srgb, var(--sc) 9%, transparent); }
+.dark .subj-tint { background-color: color-mix(in srgb, var(--sc) 14%, transparent); }
+
+/* ข้อความแจ้งเตือน: บนมือถืออยู่ด้านบน (ไม่ทับหน้าต่างที่เลื่อนขึ้นจากด้านล่าง) บนคอมอยู่ด้านล่าง */
+.toast-pos { top: calc(env(safe-area-inset-top) + 0.75rem); }
+@media (min-width: 768px) {
+  .toast-pos { top: auto; bottom: 1.5rem; }
+}

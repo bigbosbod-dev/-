@@ -1,0 +1,26 @@
+/* ไฟล์ต้นฉบับของ Tailwind: แก้ไฟล์นี้แล้วรัน `npm run build:css` เพื่อสร้าง css/tailwind.css ใหม่ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* คลาสที่ใช้ซ้ำบ่อย */
+@layer components {
+    .card { @apply bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm; }
+    .input { @apply w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-2 rounded-lg text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500; }
+    .label { @apply block text-slate-600 dark:text-slate-400 text-xs mb-1; }
+    .muted { @apply text-slate-500 dark:text-slate-400; }
+    .heading { @apply text-slate-900 dark:text-slate-100; }
+    .btn-primary { @apply inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-4 py-2.5 rounded-xl font-medium shadow-sm transition disabled:opacity-50; }
+    .btn-secondary { @apply inline-flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl font-medium transition; }
+    .btn-ghost { @apply px-4 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition; }
+    .icon-btn { @apply p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-100 transition; }
+    .tab-btn { @apply relative shrink-0 whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100; }
+    .tab-btn.active { @apply text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15; }
+    .bottom-tab { @apply relative flex flex-col items-center justify-center gap-0.5 pt-2 pb-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 transition; }
+    .bottom-tab.active { @apply text-indigo-600 dark:text-indigo-300; }
+    .pill { @apply px-3.5 py-1.5 rounded-full text-sm font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800; }
+    .pill.active { @apply bg-indigo-600 text-white hover:bg-indigo-600 dark:hover:bg-indigo-600; }
+    .theme-opt { @apply flex-1 flex flex-col items-center gap-1 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 transition; }
+    .theme-opt.active { @apply border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200; }
+    .badge-dot { @apply absolute min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold leading-[18px] text-center; }
+}

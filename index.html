@@ -26,9 +26,8 @@
     } catch (e) {}
   </script>
 
-  <!-- Tailwind CSS (Play CDN) -->
-  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
-  <script>tailwind.config = { darkMode: 'class' };</script>
+  <!-- Tailwind CSS (สร้างไว้ล่วงหน้าด้วย npm run build:css) -->
+  <link rel="stylesheet" href="css/tailwind.css" />
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
 
@@ -36,27 +35,6 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" />
   <link rel="stylesheet" href="css/style.css" />
 
-  <!-- คลาสที่ใช้ซ้ำบ่อย (Tailwind ประมวลผลบล็อกนี้ให้) -->
-  <style type="text/tailwindcss">
-    .card { @apply bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm; }
-    .input { @apply w-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-2 rounded-lg text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500; }
-    .label { @apply block text-slate-600 dark:text-slate-400 text-xs mb-1; }
-    .muted { @apply text-slate-500 dark:text-slate-400; }
-    .heading { @apply text-slate-900 dark:text-slate-100; }
-    .btn-primary { @apply inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-4 py-2.5 rounded-xl font-medium shadow-sm transition disabled:opacity-50; }
-    .btn-secondary { @apply inline-flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl font-medium transition; }
-    .btn-ghost { @apply px-4 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition; }
-    .icon-btn { @apply p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-100 transition; }
-    .tab-btn { @apply relative shrink-0 whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100; }
-    .tab-btn.active { @apply text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15; }
-    .bottom-tab { @apply relative flex flex-col items-center justify-center gap-0.5 pt-2 pb-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 transition; }
-    .bottom-tab.active { @apply text-indigo-600 dark:text-indigo-300; }
-    .pill { @apply px-3.5 py-1.5 rounded-full text-sm font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800; }
-    .pill.active { @apply bg-indigo-600 text-white hover:bg-indigo-600 dark:hover:bg-indigo-600; }
-    .theme-opt { @apply flex-1 flex flex-col items-center gap-1 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 transition; }
-    .theme-opt.active { @apply border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200; }
-    .badge-dot { @apply absolute min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold leading-[18px] text-center; }
-  </style>
 </head>
 <body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 min-h-screen flex flex-col">
 
@@ -71,6 +49,7 @@
       </div>
 
       <nav class="hidden md:flex gap-1" aria-label="เมนูหลัก">
+        <button onclick="switchTab('today')" data-tab="today" class="tab-btn">วันนี้</button>
         <button onclick="switchTab('schedule')" data-tab="schedule" class="tab-btn">ตารางเรียน</button>
         <button onclick="switchTab('kanban')" data-tab="kanban" class="tab-btn">
           งาน &amp; โปรเจกต์
@@ -103,14 +82,50 @@
       <button onclick="location.reload()" class="mt-3 underline">โหลดหน้าใหม่</button>
     </div>
 
+    <!-- 0. TODAY -->
+    <section id="tab-today" class="space-y-5">
+      <div>
+        <h2 id="today-greeting" class="text-2xl font-bold heading">สวัสดี</h2>
+        <p id="today-date" class="text-sm muted"></p>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold heading flex items-center gap-2"><i data-lucide="calendar-days" class="w-4 h-4 text-indigo-500"></i> คาบเรียนวันนี้</h3>
+            <button onclick="switchTab('schedule')" class="text-xs text-indigo-600 dark:text-indigo-300">ดูทั้งสัปดาห์ →</button>
+          </div>
+          <div id="today-classes" class="space-y-1.5"></div>
+        </div>
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold heading flex items-center gap-2"><i data-lucide="list-todo" class="w-4 h-4 text-indigo-500"></i> งานที่ต้องรีบทำ</h3>
+            <button onclick="openTaskModal()" class="text-xs text-indigo-600 dark:text-indigo-300">+ เพิ่มงาน</button>
+          </div>
+          <div id="today-tasks" class="divide-y divide-slate-100 dark:divide-slate-800"></div>
+        </div>
+        <div id="today-exams-card" class="card p-5 hidden">
+          <h3 class="font-semibold heading flex items-center gap-2 mb-2"><i data-lucide="notebook-pen" class="w-4 h-4 text-indigo-500"></i> สอบที่ใกล้เข้ามา</h3>
+          <div id="today-exams" class="divide-y divide-slate-100 dark:divide-slate-800"></div>
+        </div>
+        <div class="card p-5">
+          <h3 class="font-semibold heading flex items-center gap-2 mb-3"><i data-lucide="timer" class="w-4 h-4 text-indigo-500"></i> การอ่านวันนี้</h3>
+          <div id="today-study" class="mb-4"></div>
+          <button id="today-focus-btn" onclick="startFocusFromToday()" class="btn-primary w-full text-sm">เริ่มโฟกัส</button>
+        </div>
+      </div>
+    </section>
+
     <!-- 1. SCHEDULE -->
-    <section id="tab-schedule" class="space-y-5">
+    <section id="tab-schedule" class="hidden space-y-5">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 class="text-2xl font-bold heading">ตารางเรียนและห้องเรียน</h2>
           <p class="text-sm muted">บันทึกวิชาเรียน ห้องเรียน และดูคาบเรียนถัดไป</p>
         </div>
         <div class="flex gap-2">
+          <button onclick="openShareModal()" class="btn-secondary !px-3" aria-label="แชร์ตารางเรียน" title="แชร์ตารางเรียนให้เพื่อน">
+            <i data-lucide="share-2" class="w-4 h-4"></i>
+          </button>
           <button onclick="openCalendarModal()" class="btn-secondary flex-1 sm:flex-none">
             <i data-lucide="calendar-plus" class="w-4 h-4"></i> ส่งเข้าปฏิทิน
           </button>
@@ -360,8 +375,9 @@
   </main>
 
   <!-- ===== Bottom navigation (มือถือ) ===== -->
-  <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 grid grid-cols-4 safe-bottom" aria-label="เมนูหลัก">
-    <button onclick="switchTab('schedule')" data-tab="schedule" class="bottom-tab"><i data-lucide="calendar-days" class="w-5 h-5"></i>ตารางเรียน</button>
+  <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 safe-bottom" aria-label="เมนูหลัก">
+    <button onclick="switchTab('today')" data-tab="today" class="bottom-tab"><i data-lucide="sun-medium" class="w-5 h-5"></i>วันนี้</button>
+    <button onclick="switchTab('schedule')" data-tab="schedule" class="bottom-tab"><i data-lucide="calendar-days" class="w-5 h-5"></i>ตาราง</button>
     <button onclick="switchTab('kanban')" data-tab="kanban" class="bottom-tab">
       <i data-lucide="list-todo" class="w-5 h-5"></i>งาน
       <span class="kanban-badge badge-dot hidden top-1 left-1/2 ml-2"></span>
@@ -371,7 +387,7 @@
   </nav>
 
   <!-- ===== Toasts ===== -->
-  <div id="toast-container" class="fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-6 z-[60] w-[calc(100%-2rem)] max-w-sm space-y-2 pointer-events-none" aria-live="polite"></div>
+  <div id="toast-container" class="toast-pos fixed left-1/2 -translate-x-1/2 z-[80] w-[calc(100%-2rem)] max-w-sm space-y-2 pointer-events-none" aria-live="polite"></div>
 
   <!-- ===== MODAL: SCHEDULE ===== -->
   <div id="schedule-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('schedule-modal')">
@@ -380,7 +396,11 @@
       <div class="space-y-3 text-sm">
         <div>
           <label class="label" for="sched-name">ชื่อวิชา / รหัสวิชา</label>
-          <input type="text" id="sched-name" class="input" placeholder="เช่น Database Systems" />
+          <input type="text" id="sched-name" list="subject-list" class="input" placeholder="เช่น Database Systems" oninput="renderColorPicker()" />
+        </div>
+        <div>
+          <label class="label">สีประจำวิชา</label>
+          <div id="sched-colors" class="flex flex-wrap items-center gap-2"></div>
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
@@ -490,6 +510,51 @@
     </div>
   </div>
 
+  <!-- ===== MODAL: SHARE ===== -->
+  <div id="share-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('share-modal')">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl safe-bottom-pad">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold heading">แชร์ตารางเรียนให้เพื่อน</h3>
+        <button onclick="closeModal('share-modal')" class="icon-btn" aria-label="ปิด"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <p class="text-xs muted">เพื่อนเปิดลิงก์แล้วเห็นตารางเรียนและวันสอบของคุณแบบดูอย่างเดียว แก้ไม่ได้ และไม่เห็นงาน เกรด หรือสถิติ ตารางที่แชร์จะอัปเดตตามที่คุณแก้เอง</p>
+      <div id="share-need-login" class="hidden text-sm space-y-3">
+        <p class="text-slate-700 dark:text-slate-300">ต้องล็อกอินซิงก์ก่อนถึงจะแชร์ได้</p>
+        <button onclick="closeModal('share-modal'); openModal('settings-modal')" class="btn-primary w-full text-sm">ไปที่การตั้งค่าซิงก์</button>
+      </div>
+      <div id="share-off" class="hidden space-y-3">
+        <div>
+          <label class="label" for="share-name">ชื่อที่เพื่อนจะเห็น</label>
+          <input id="share-name" type="text" maxlength="50" class="input" placeholder="เช่น บอส" />
+        </div>
+        <button id="share-create-btn" onclick="createShare()" class="btn-primary w-full text-sm"><i data-lucide="link" class="w-4 h-4"></i> สร้างลิงก์แชร์</button>
+      </div>
+      <div id="share-on" class="hidden space-y-3">
+        <div class="flex gap-2">
+          <input id="share-link" type="text" readonly class="input font-mono !text-xs" onclick="this.select()" />
+          <button onclick="copyShareLink()" class="btn-primary !py-2 text-sm whitespace-nowrap">คัดลอก</button>
+        </div>
+        <button onclick="nativeShareLink()" class="btn-secondary w-full text-sm"><i data-lucide="share" class="w-4 h-4"></i> ส่งผ่านแอปอื่น (LINE, Messenger…)</button>
+        <button onclick="stopShare()" class="w-full text-xs text-rose-500 hover:text-rose-600 py-1">หยุดแชร์ (ลิงก์เดิมจะใช้ไม่ได้)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== VIEW: ตารางที่เพื่อนแชร์มา ===== -->
+  <div id="shared-view" class="hidden fixed inset-0 z-[70] bg-slate-50 dark:bg-slate-950 overflow-y-auto safe-top">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5 safe-bottom-pad">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-xs muted flex items-center gap-1"><i data-lucide="eye" class="w-3.5 h-3.5"></i> ดูอย่างเดียว</div>
+          <h2 id="shared-title" class="text-2xl font-bold heading">ตารางเรียน</h2>
+          <p id="shared-updated" class="text-xs muted"></p>
+        </div>
+        <button onclick="closeSharedView()" class="btn-primary !py-2 text-sm whitespace-nowrap">กลับไปแอปของฉัน</button>
+      </div>
+      <div id="shared-body"></div>
+    </div>
+  </div>
+
   <!-- ===== MODAL: SETTINGS ===== -->
   <div id="settings-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('settings-modal')">
     <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-6 shadow-xl max-h-[90vh] overflow-y-auto safe-bottom-pad">
@@ -575,7 +640,7 @@
         <p id="installed-note" class="text-xs text-emerald-600 dark:text-emerald-400 hidden">✓ กำลังใช้งานแบบแอปอยู่ ใช้งานได้แม้ไม่มีอินเทอร์เน็ต</p>
       </div>
 
-      <p class="text-[11px] text-center muted">StudyFlow v4</p>
+      <p class="text-[11px] text-center muted">StudyFlow v5</p>
     </div>
   </div>
 

@@ -18,6 +18,7 @@ let syncing = false;
 let syncQueued = false;
 let lastSyncError = '';
 let pendingEmail = '';
+let shareId = '';
 
 function getSyncMeta() {
   const m = getStorage(SYNC_META_KEY, {});
@@ -199,6 +200,7 @@ async function pushData() {
     .single();
   if (error) throw error;
   setSyncMeta({ userId: currentUser.id, remoteUpdatedAt: data.updated_at, dirty: false, lastSyncedAt: new Date().toISOString() });
+  updateShareData();
 }
 
 function pullData(row) {
@@ -279,11 +281,166 @@ async function syncNow({ manual = false } = {}) {
   }
 }
 
+// ---------- แชร์ตารางเรียน (ดูอย่างเดียว) ----------
+function shareUrl(id) {
+  return `${location.origin}${location.pathname}?share=${id}`;
+}
+
+function shareData() {
+  // แชร์เฉพาะตารางเรียน วันสอบที่ยังไม่ถึง และสีวิชา (ไม่รวมงาน เกรด สถิติ)
+  return {
+    schedules,
+    exams: exams.filter((e) => daysUntil(e.date) >= 0),
+    subjectColors,
+  };
+}
+
+function randomShareId() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return [...bytes].map((b) => chars[b % chars.length]).join('');
+}
+
+async function loadShareState() {
+  shareId = '';
+  if (!sb || !currentUser) return;
+  const { data } = await sb.from('shared_schedules').select('id, owner_name').eq('user_id', currentUser.id).maybeSingle();
+  if (data) {
+    shareId = data.id;
+    if ($('share-name')) $('share-name').value = data.owner_name;
+  }
+}
+
+function renderShareModal() {
+  $('share-need-login').classList.toggle('hidden', !!currentUser);
+  $('share-off').classList.toggle('hidden', !currentUser || !!shareId);
+  $('share-on').classList.toggle('hidden', !currentUser || !shareId);
+  if (shareId) $('share-link').value = shareUrl(shareId);
+  if (currentUser && !$('share-name').value) $('share-name').value = (currentUser.email || '').split('@')[0];
+}
+
+async function openShareModal() {
+  renderShareModal();
+  openModal('share-modal');
+  if (currentUser) {
+    await loadShareState();
+    renderShareModal();
+  }
+}
+
+async function createShare() {
+  if (!sb || !currentUser) return;
+  const ownerName = $('share-name').value.trim().slice(0, 50);
+  const id = randomShareId();
+  const btn = $('share-create-btn');
+  btn.disabled = true;
+  try {
+    const { error } = await sb.from('shared_schedules').upsert(
+      { id, user_id: currentUser.id, owner_name: ownerName, data: shareData(), updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' },
+    );
+    if (error) throw error;
+    shareId = id;
+    renderShareModal();
+    toast('สร้างลิงก์แล้ว ส่งให้เพื่อนได้เลย', 'success');
+  } catch (err) {
+    toast(`สร้างลิงก์ไม่สำเร็จ: ${err.message || err}`, 'error', 6000);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function updateShareData() {
+  if (!sb || !currentUser || !shareId) return;
+  const { error } = await sb.from('shared_schedules')
+    .update({ data: shareData(), updated_at: new Date().toISOString() })
+    .eq('user_id', currentUser.id);
+  if (error) console.warn('update share failed', error);
+}
+
+async function stopShare() {
+  if (!sb || !currentUser || !shareId) return;
+  if (!confirm('หยุดแชร์ใช่ไหม? ลิงก์ที่ส่งให้เพื่อนไปแล้วจะเปิดไม่ได้อีก')) return;
+  const { error } = await sb.from('shared_schedules').delete().eq('user_id', currentUser.id);
+  if (error) return toast(`หยุดแชร์ไม่สำเร็จ: ${error.message}`, 'error');
+  shareId = '';
+  renderShareModal();
+  toast('หยุดแชร์แล้ว');
+}
+
+async function copyShareLink() {
+  const link = shareUrl(shareId);
+  try {
+    await navigator.clipboard.writeText(link);
+    toast('คัดลอกลิงก์แล้ว', 'success', 1500);
+  } catch (e) {
+    $('share-link').select();
+    toast('กดค้างที่ลิงก์แล้วเลือกคัดลอก');
+  }
+}
+
+async function nativeShareLink() {
+  const link = shareUrl(shareId);
+  if (navigator.share) {
+    try { await navigator.share({ title: 'ตารางเรียนของฉัน', text: 'ดูตารางเรียนของฉันใน StudyFlow', url: link }); } catch (e) { /* ผู้ใช้ยกเลิก */ }
+  } else {
+    copyShareLink();
+  }
+}
+
+// ---------- หน้าดูตารางที่เพื่อนแชร์มา ----------
+async function openSharedView(id) {
+  $('shared-view').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  const body = $('shared-body');
+  body.innerHTML = '<p class="muted text-sm">กำลังโหลดตารางเรียน...</p>';
+  if (!sb) {
+    body.innerHTML = '<p class="text-sm text-rose-500">โหลดไม่ได้ (ไม่มีอินเทอร์เน็ต) ลองใหม่อีกครั้งเมื่อออนไลน์</p>';
+    return;
+  }
+  try {
+    const { data, error } = await sb.rpc('get_shared_schedule', { share_id: id });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) {
+      body.innerHTML = '<p class="text-sm muted">ไม่พบตารางนี้ เจ้าของอาจหยุดแชร์ไปแล้ว</p>';
+      return;
+    }
+    const list = sanitizeSchedules(row.data && row.data.schedules);
+    const colors = sanitizeSubjectColors(row.data && row.data.subjectColors);
+    const sharedExams = sanitizeExams(row.data && row.data.exams).filter((e) => daysUntil(e.date) >= 0).sort(compareExams);
+    $('shared-title').textContent = row.owner_name ? `ตารางเรียนของ ${row.owner_name}` : 'ตารางเรียนที่แชร์มา';
+    $('shared-updated').textContent = `อัปเดตล่าสุด ${formatTime(row.updated_at)}`;
+    const examHtml = sharedExams.length ? `
+      <div class="card p-5 mt-5">
+        <h3 class="font-semibold heading mb-2">วันสอบ</h3>
+        <div class="divide-y divide-slate-100 dark:divide-slate-800">
+          ${sharedExams.map((e) => `<div class="py-2 flex items-center justify-between gap-3">
+            <div class="min-w-0"><div class="text-sm font-medium heading truncate flex items-center gap-1.5">${subjDot(findSubjectIn(e.name, list), colors, false)}${escapeHtml(e.name)}</div>
+            <div class="text-xs muted">${[formatThaiDate(e.date), e.time, e.room].filter(Boolean).map(escapeHtml).join(' · ')}</div></div>
+            <span class="text-xs font-semibold text-indigo-600 dark:text-indigo-300 whitespace-nowrap">อีก ${daysUntil(e.date)} วัน</span></div>`).join('')}
+        </div>
+      </div>` : '';
+    body.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">${scheduleGridHtml(list, { editable: false, colors })}</div>${examHtml}`;
+    refreshIcons();
+  } catch (err) {
+    body.innerHTML = `<p class="text-sm text-rose-500">โหลดไม่สำเร็จ: ${escapeHtml(err.message || err)}</p>`;
+  }
+}
+
+function closeSharedView() {
+  $('shared-view').classList.add('hidden');
+  document.body.style.overflow = '';
+  history.replaceState(null, '', location.pathname);
+}
+
 // ---------- Init ----------
 function initSync() {
   onLocalDataChange = markLocalChanged;
   if (!window.supabase || !window.supabase.createClient) {
     renderSyncUI();
+    const sharedParam = new URLSearchParams(location.search).get('share');
+    if (sharedParam) openSharedView(sharedParam);
     return;
   }
   sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -297,8 +454,9 @@ function initSync() {
     // เรียก Supabase ต่อจากใน callback นี้ตรง ๆ ไม่ได้ (จะค้าง) จึงหน่วงไว้นิดหนึ่ง
     if (currentUser && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
       if (event === 'SIGNED_IN' && !wasSignedIn) toast(`เข้าสู่ระบบแล้ว: ${currentUser.email}`, 'success');
-      setTimeout(() => syncNow(), 0);
+      setTimeout(() => { syncNow(); loadShareState(); }, 0);
     }
+    if (!currentUser) shareId = '';
     // ล้าง token ออกจาก URL หลังล็อกอินผ่านลิงก์
     if (event === 'SIGNED_IN' && location.hash.includes('access_token')) {
       history.replaceState(null, '', location.pathname + location.search);
@@ -310,6 +468,8 @@ function initSync() {
     toast(`เข้าสู่ระบบไม่สำเร็จ: ${params.get('error_description')} (ลองขอลิงก์ใหม่)`, 'error', 8000);
     history.replaceState(null, '', location.pathname + location.search);
   }
+  const sharedParam = new URLSearchParams(location.search).get('share');
+  if (sharedParam && /^[A-Za-z0-9]{10,32}$/.test(sharedParam)) openSharedView(sharedParam);
   window.addEventListener('online', () => syncNow());
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) syncNow();

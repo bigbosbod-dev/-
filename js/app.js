@@ -19,6 +19,7 @@ const KEYS = {
   reminders: 'reminder_settings',
   notified: 'notified_keys',
   calendar: 'calendar_settings',
+  subjectColors: 'subject_colors',
 };
 
 // อ่านข้อมูลอย่างปลอดภัย: ถ้าข้อมูลเสียหรือเบราว์เซอร์บล็อก storage จะใช้ค่าเริ่มต้นแทน แอปไม่พัง
@@ -41,6 +42,7 @@ function getStorage(key, fallback) {
 const SYNCED_KEYS = new Set([
   'schedules_data', 'tasks_data', 'study_stats', 'study_log', 'gpa_rows', 'gpa_sim',
   'pomo_settings', 'exams_data', 'semesters_data', 'reminder_settings', 'calendar_settings',
+  'subject_colors',
 ]);
 // sync.js จะมาแทนที่ฟังก์ชันนี้ เพื่อรู้ว่าข้อมูลเปลี่ยนแล้วต้องอัปโหลด
 let onLocalDataChange = () => {};
@@ -251,6 +253,63 @@ function sanitizeCalendarSettings(obj) {
 }
 
 // =====================================================================
+// สีประจำวิชา (ชุดสี 8 สีที่ตรวจแล้วว่าแยกกันออกแม้ตาบอดสี มีชื่อวิชากำกับเสมอ)
+// =====================================================================
+const SUBJECT_PALETTE = [
+  { key: 'blue', name: 'น้ำเงิน', light: '#2a78d6', dark: '#3987e5' },
+  { key: 'orange', name: 'ส้ม', light: '#eb6834', dark: '#d95926' },
+  { key: 'aqua', name: 'เขียวมิ้นต์', light: '#1baf7a', dark: '#199e70' },
+  { key: 'yellow', name: 'เหลือง', light: '#eda100', dark: '#c98500' },
+  { key: 'magenta', name: 'ชมพู', light: '#e87ba4', dark: '#d55181' },
+  { key: 'green', name: 'เขียว', light: '#008300', dark: '#008300' },
+  { key: 'violet', name: 'ม่วง', light: '#6250d6', dark: '#9085e9' },
+  { key: 'red', name: 'แดง', light: '#e34948', dark: '#e66767' },
+];
+const PALETTE_BY_KEY = Object.fromEntries(SUBJECT_PALETTE.map((c) => [c.key, c]));
+const GENERIC_SUBJECTS = new Set(['', 'ทั่วไป', 'วิชาทั่วไป']);
+const subjectKey = (name) => String(name || '').trim().toLowerCase();
+
+function sanitizeSubjectColors(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  Object.entries(obj).forEach(([k, v]) => {
+    if (k && k.length <= 100 && PALETTE_BY_KEY[v]) out[subjectKey(k)] = v;
+  });
+  return out;
+}
+
+let subjectColors = sanitizeSubjectColors(getStorage(KEYS.subjectColors, {}));
+
+// ให้สีวิชาใหม่ตามลำดับชุดสี (เลือกสีที่ใช้น้อยที่สุด เริ่มจากสีแรก)
+function colorFor(name, map = subjectColors, assign = true) {
+  const k = subjectKey(name);
+  if (GENERIC_SUBJECTS.has(k)) return null;
+  if (map[k]) return PALETTE_BY_KEY[map[k]];
+  if (!assign) return null;
+  const used = Object.values(map);
+  const pick = SUBJECT_PALETTE.reduce((best, c) => {
+    const n = used.filter((u) => u === c.key).length;
+    return n < best.n ? { c, n } : best;
+  }, { c: SUBJECT_PALETTE[0], n: Infinity }).c;
+  map[k] = pick.key;
+  if (map === subjectColors) setStorage(KEYS.subjectColors, subjectColors);
+  return pick;
+}
+
+// คืน attribute style สำหรับ element ที่มีคลาส .subj (ใช้ตัวแปร --sc ใน CSS)
+function subjectStyle(name, map = subjectColors, assign = true) {
+  const c = colorFor(name, map, assign);
+  return c ? `style="--sc-light:${c.light};--sc-dark:${c.dark}"` : '';
+}
+
+// หาว่าข้อความ (เช่นชื่อการสอบ) ตรงกับวิชาไหนในตารางเรียน
+function findSubjectIn(text, list = schedules) {
+  const t = subjectKey(text);
+  const names = [...new Set(list.map((s) => s.name))].sort((a, b) => b.length - a.length);
+  return names.find((n) => t.includes(subjectKey(n))) || '';
+}
+
+// =====================================================================
 // Theme (โหมดมืด)
 // =====================================================================
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -283,10 +342,10 @@ darkQuery.addEventListener?.('change', applyTheme);
 // =====================================================================
 // Tabs & modals
 // =====================================================================
-const TABS = ['schedule', 'kanban', 'pomodoro', 'gpa'];
+const TABS = ['today', 'schedule', 'kanban', 'pomodoro', 'gpa'];
 
 function switchTab(tab) {
-  if (!TABS.includes(tab)) tab = 'schedule';
+  if (!TABS.includes(tab)) tab = 'today';
   TABS.forEach((t) => $(`tab-${t}`).classList.toggle('hidden', t !== tab));
   document.querySelectorAll('[data-tab]').forEach((b) => {
     const on = b.dataset.tab === tab;
@@ -333,10 +392,19 @@ let editingScheduleId = null;
 let renderedDayIndex = todayIndex();
 
 function renderSchedule() {
+  renderedDayIndex = todayIndex();
+  $('schedule-grid').innerHTML = scheduleGridHtml(schedules, { editable: true });
+  renderNextClass();
+  renderSubjectList();
+  renderToday();
+  refreshIcons();
+}
+
+// สร้าง HTML ตารางเรียน 7 วัน ใช้ทั้งในแอปและหน้าดูตารางที่เพื่อนแชร์มา
+function scheduleGridHtml(list, { editable = false, colors = subjectColors } = {}) {
   const today = todayIndex();
-  renderedDayIndex = today;
-  $('schedule-grid').innerHTML = DAYS.map((day, i) => {
-    const items = schedules.filter((s) => s.day === day).sort(byStart);
+  return DAYS.map((day, i) => {
+    const items = list.filter((s) => s.day === day).sort(byStart);
     const isToday = i === today;
     return `
       <div class="card p-4 flex flex-col gap-3 xl:min-h-[260px] ${isToday ? 'ring-2 ring-indigo-500 dark:ring-indigo-400' : ''}">
@@ -347,22 +415,19 @@ function renderSchedule() {
           <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">${items.length} วิชา</span>
         </div>
         <div class="space-y-2 flex-1">
-          ${items.length ? items.map(scheduleCardHtml).join('') : '<p class="text-xs muted">ไม่มีเรียน</p>'}
+          ${items.length ? items.map((it) => scheduleCardHtml(it, { editable, colors })).join('') : '<p class="text-xs muted">ไม่มีเรียน</p>'}
         </div>
       </div>`;
   }).join('');
-  renderNextClass();
-  renderSubjectList();
-  refreshIcons();
 }
 
-function scheduleCardHtml(item) {
+function scheduleCardHtml(item, { editable = true, colors = subjectColors } = {}) {
   return `
-    <div onclick="openScheduleModal(${item.id})" class="bg-indigo-50/70 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 p-3 rounded-xl relative group cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-400/50 transition">
-      <button onclick="event.stopPropagation(); deleteSchedule(${item.id})" aria-label="ลบวิชา" class="absolute top-2 right-2 text-slate-400 hover:text-rose-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition">
+    <div ${editable ? `onclick="openScheduleModal(${item.id})"` : ''} ${subjectStyle(item.name, colors, editable)} class="subj subj-tint subj-bar border border-slate-200/70 dark:border-slate-700/60 p-3 rounded-xl relative group ${editable ? 'cursor-pointer hover:shadow-sm' : ''} transition">
+      ${editable ? `<button onclick="event.stopPropagation(); deleteSchedule(${item.id})" aria-label="ลบวิชา" class="absolute top-2 right-2 text-slate-400 hover:text-rose-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition">
         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-      </button>
-      <div class="font-semibold text-xs text-indigo-950 dark:text-indigo-100 pr-5">${escapeHtml(item.name)}</div>
+      </button>` : ''}
+      <div class="font-semibold text-xs heading pr-5">${escapeHtml(item.name)}</div>
       <div class="text-[11px] muted mt-1 flex items-center gap-1">
         <i data-lucide="clock" class="w-3 h-3 text-indigo-500"></i> ${escapeHtml(item.start)} - ${escapeHtml(item.end)}
       </div>
@@ -442,15 +507,33 @@ function renderSubjectList() {
   $('subject-list').innerHTML = [...names].map((n) => `<option value="${escapeHtml(n)}"></option>`).join('');
 }
 
+let pickedColor = '';
+
+function renderColorPicker() {
+  const nameColor = colorFor($('sched-name').value, subjectColors, false);
+  const active = pickedColor || (nameColor ? nameColor.key : '');
+  $('sched-colors').innerHTML = `
+    <button type="button" onclick="pickColor('')" class="h-8 px-2.5 rounded-full text-xs border ${!pickedColor ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 muted'}">อัตโนมัติ</button>
+    ${SUBJECT_PALETTE.map((c) => `<button type="button" onclick="pickColor('${c.key}')" aria-label="สี${c.name}" title="${c.name}" style="--sc-light:${c.light};--sc-dark:${c.dark}"
+      class="subj subj-dot w-8 h-8 rounded-full ring-offset-2 ring-offset-white dark:ring-offset-slate-900 ${active === c.key ? 'ring-2 ring-slate-900 dark:ring-white' : ''}"></button>`).join('')}`;
+}
+
+function pickColor(key) {
+  pickedColor = key;
+  renderColorPicker();
+}
+
 function openScheduleModal(id = null) {
   const item = id ? schedules.find((s) => s.id === id) : null;
   editingScheduleId = item ? item.id : null;
+  pickedColor = '';
   $('schedule-modal-title').textContent = item ? 'แก้ไขคาบเรียน' : 'เพิ่มคาบเรียนใหม่';
   $('sched-name').value = item ? item.name : '';
   $('sched-day').value = item ? item.day : DAYS[todayIndex()];
   $('sched-room').value = item ? item.room : '';
   $('sched-start').value = item ? item.start : '09:00';
   $('sched-end').value = item ? item.end : '12:00';
+  renderColorPicker();
   openModal('schedule-modal');
 }
 
@@ -464,6 +547,10 @@ function saveSchedule() {
   if (!name) return toast('กรุณากรอกชื่อวิชา', 'error');
   if (!TIME_RE.test(start) || !TIME_RE.test(end)) return toast('กรุณาระบุเวลาเริ่มและเวลาเลิก', 'error');
   if (toMinutes(end) <= toMinutes(start)) return toast('เวลาเลิกต้องหลังเวลาเริ่ม', 'error');
+  if (pickedColor && PALETTE_BY_KEY[pickedColor]) {
+    subjectColors[subjectKey(name)] = pickedColor;
+    setStorage(KEYS.subjectColors, subjectColors);
+  }
 
   if (editingScheduleId) {
     schedules = schedules.map((s) => (s.id === editingScheduleId ? { ...s, name, day, room, start, end } : s));
@@ -475,6 +562,9 @@ function saveSchedule() {
   setStorage(KEYS.schedules, schedules);
   closeModal('schedule-modal');
   renderSchedule();
+  renderTasks();
+  renderExams();
+  renderStudyStats();
 }
 
 function deleteSchedule(id) {
@@ -521,7 +611,7 @@ function renderExams() {
         <div class="flex items-center gap-3 pr-6">
           ${!isPast && n > 1 ? `<div class="text-center shrink-0 w-14"><div class="text-2xl font-black text-indigo-600 dark:text-indigo-300 leading-none">${n}</div><div class="text-[10px] muted">วัน</div></div>` : ''}
           <div class="min-w-0">
-            <div class="font-semibold text-sm heading truncate">${escapeHtml(e.name)}</div>
+            <div class="font-semibold text-sm heading truncate flex items-center gap-1.5">${subjDot(findSubjectIn(e.name))}${escapeHtml(e.name)}</div>
             <div class="text-xs muted mt-0.5">${detail}</div>
             <span class="inline-block mt-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full ${tone}">${badge}</span>
           </div>
@@ -530,7 +620,14 @@ function renderExams() {
   };
   const html = upcoming.map((e) => card(e, false)).concat(past.slice(0, 3).map((e) => card(e, true)));
   $('exam-list').innerHTML = html.join('') || '<p class="text-xs muted">ยังไม่มีวันสอบ</p>';
+  renderToday();
   refreshIcons();
+}
+
+// จุดสีประจำวิชา (ถ้าไม่ใช่วิชาทั่วไป)
+function subjDot(name, map = subjectColors, assign = true) {
+  const st = name ? subjectStyle(name, map, assign) : '';
+  return st ? `<span ${st} class="subj subj-dot inline-block w-2.5 h-2.5 rounded-full shrink-0"></span>` : '';
 }
 
 function openExamModal(id = null) {
@@ -798,7 +895,7 @@ function renderTasks() {
     html[task.status].push(`
       <div onclick="openTaskModal(${task.id})" class="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 ${DUE_BORDER[info.level] || ''} shadow-sm hover:shadow transition space-y-2 cursor-pointer ${task.status === 'done' ? 'opacity-70' : ''}">
         <div class="flex justify-between items-start gap-2">
-          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 truncate">${escapeHtml(task.subject)}</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 truncate inline-flex items-center gap-1.5">${subjDot(task.subject)}${escapeHtml(task.subject)}</span>
           <button onclick="event.stopPropagation(); deleteTask(${task.id})" aria-label="ลบงาน" class="text-slate-400 hover:text-rose-500 shrink-0">
             <i data-lucide="x" class="w-4 h-4"></i>
           </button>
@@ -829,6 +926,7 @@ function renderTasks() {
     b.textContent = urgentCount > 9 ? '9+' : String(urgentCount);
     b.classList.toggle('hidden', urgentCount === 0);
   });
+  renderToday();
   refreshIcons();
 }
 
@@ -1022,6 +1120,7 @@ function renderStudySummary() {
 
 function renderStudyStats() {
   renderStudySummary();
+  renderToday();
   const container = $('study-stats-list');
   const entries = Object.entries(studyStats).sort((a, b) => b[1] - a[1]);
   if (!entries.length) {
@@ -1033,11 +1132,11 @@ function renderStudyStats() {
   container.innerHTML = entries.map(([k, v]) => `
     <div>
       <div class="flex justify-between items-center mb-1">
-        <span class="text-slate-700 dark:text-slate-200 font-medium truncate pr-2">${escapeHtml(k)}</span>
+        <span class="text-slate-700 dark:text-slate-200 font-medium truncate pr-2 flex items-center gap-1.5">${subjDot(k)}${escapeHtml(k)}</span>
         <span class="text-indigo-600 dark:text-indigo-300 font-semibold whitespace-nowrap">${formatDuration(v)}</span>
       </div>
       <div class="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-        <div class="h-full rounded-full bg-indigo-500" style="width:${Math.max(4, (v / max) * 100)}%"></div>
+        <div class="h-full rounded-full ${colorFor(k, subjectColors, false) ? 'subj subj-fill' : 'bg-slate-400 dark:bg-slate-500'}" ${subjectStyle(k, subjectColors, false).replace('style="', `style="width:${Math.max(4, (v / max) * 100)}%;`) || `style="width:${Math.max(4, (v / max) * 100)}%"`}></div>
       </div>
     </div>`).join('') + `<p class="text-xs muted pt-2 border-t border-slate-100 dark:border-slate-800">รวมทั้งหมด ${formatDuration(total)}</p>`;
 }
@@ -1342,6 +1441,90 @@ function simulateTarget() {
   }
 }
 
+// =====================================================================
+// 0. TODAY (หน้า "วันนี้")
+// =====================================================================
+function renderToday() {
+  const root = $('tab-today');
+  if (!root || typeof studyLog === 'undefined' || typeof exams === 'undefined' || typeof gpaRows === 'undefined') return;
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const hour = now.getHours();
+  $('today-greeting').textContent = hour < 12 ? 'สวัสดีตอนเช้า ☀️' : hour < 17 ? 'สวัสดีตอนบ่าย 🌤️' : 'สวัสดีตอนเย็น 🌙';
+  $('today-date').textContent = now.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  // คาบเรียนวันนี้
+  const classes = schedules.filter((s) => s.day === DAYS[todayIndex()]).sort(byStart);
+  $('today-classes').innerHTML = classes.length ? classes.map((s) => {
+    const st = toMinutes(s.start);
+    const en = toMinutes(s.end);
+    let badge = '';
+    let faded = '';
+    if (nowMin >= en) { badge = '<span class="text-[11px] muted">เรียนแล้ว</span>'; faded = 'opacity-60'; }
+    else if (nowMin >= st) badge = `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${DUE_BADGE.done}">กำลังเรียน</span>`;
+    else if (st - nowMin <= 60) badge = `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${DUE_BADGE.urgent}">อีก ${formatDuration(st - nowMin)}</span>`;
+    return `
+      <div ${subjectStyle(s.name)} class="subj subj-bar flex items-center justify-between gap-3 py-2.5 pl-3 pr-1 ${faded}">
+        <div class="min-w-0">
+          <div class="text-sm font-medium heading truncate">${escapeHtml(s.name)}</div>
+          <div class="text-xs muted">${escapeHtml(s.start)} - ${escapeHtml(s.end)}${s.room ? ` · ${escapeHtml(s.room)}` : ''}</div>
+        </div>
+        ${badge}
+      </div>`;
+  }).join('') : '<p class="text-sm muted py-2">วันนี้ไม่มีเรียน 🎉</p>';
+
+  // งานที่ต้องรีบทำ (เลยกำหนด / ภายใน 3 วัน)
+  const urgent = tasks.filter((t) => t.status !== 'done' && daysUntil(t.due) !== null && daysUntil(t.due) <= 3).sort(compareTasks);
+  $('today-tasks').innerHTML = urgent.length ? urgent.map((t) => {
+    const info = dueInfo(t);
+    return `
+      <div class="flex items-center gap-3 py-2">
+        <button onclick="moveTask(${t.id}, 'done')" aria-label="ทำเสร็จแล้ว" title="ทำเสร็จแล้ว" class="w-5 h-5 rounded-md border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 shrink-0"></button>
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-medium heading truncate">${escapeHtml(t.title)}</div>
+          <div class="text-xs muted flex items-center gap-1.5">${subjDot(t.subject)}${escapeHtml(t.subject)}</div>
+        </div>
+        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${DUE_BADGE[info.level]}">${escapeHtml(info.text)}</span>
+      </div>`;
+  }).join('') : '<p class="text-sm muted py-2">ไม่มีงานเร่งด่วน 👍</p>';
+
+  // วันสอบภายใน 30 วัน
+  const soonExams = upcomingExams().filter((e) => daysUntil(e.date) <= 30);
+  $('today-exams-card').classList.toggle('hidden', soonExams.length === 0);
+  $('today-exams').innerHTML = soonExams.map((e) => {
+    const n = daysUntil(e.date);
+    return `
+      <div class="flex items-center gap-3 py-2">
+        <div class="w-12 text-center shrink-0">
+          <div class="text-xl font-black leading-none ${n <= 3 ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-300'}">${n === 0 ? '!' : n}</div>
+          <div class="text-[10px] muted">${n === 0 ? 'วันนี้' : 'วัน'}</div>
+        </div>
+        <div class="min-w-0">
+          <div class="text-sm font-medium heading truncate flex items-center gap-1.5">${subjDot(findSubjectIn(e.name))}${escapeHtml(e.name)}</div>
+          <div class="text-xs muted">${[formatThaiDate(e.date), e.time, e.room].filter(Boolean).map(escapeHtml).join(' · ')}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // การอ่านวันนี้
+  const mins = minutesOn(todayStr());
+  const streak = studyStreak();
+  $('today-study').innerHTML = `
+    <div class="flex items-end gap-6">
+      <div><div class="text-2xl font-bold heading">${formatDuration(mins)}</div><div class="text-xs muted">อ่านวันนี้</div></div>
+      <div><div class="text-2xl font-bold heading">${streak} วัน${streak >= 3 ? ' 🔥' : ''}</div><div class="text-xs muted">อ่านติดต่อกัน</div></div>
+    </div>`;
+  $('today-focus-btn').textContent = isRunning ? 'ดูตัวจับเวลา' : 'เริ่มโฟกัส 25 นาที'.replace('25', String(pomo.focus));
+}
+
+function startFocusFromToday() {
+  switchTab('pomodoro');
+  if (!isRunning) {
+    if (mode !== 'focus') setMode('focus');
+    toggleTimer();
+  }
+}
+
 // ---------- ประวัติเกรดหลายเทอม ----------
 let semesters = sanitizeSemesters(getStorage(KEYS.semesters, []));
 
@@ -1423,7 +1606,7 @@ function useHistoryInSimulator() {
 // Backup: export / import / clear
 // =====================================================================
 function collectData() {
-  return { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings };
+  return { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings, subjectColors };
 }
 
 // แทนที่ข้อมูลทั้งหมดด้วยข้อมูลชุดใหม่ (จากไฟล์สำรองหรือจากคลาวด์) แล้ววาดหน้าจอใหม่
@@ -1439,6 +1622,7 @@ function applyData(d, { fromSync = false } = {}) {
   semesters = sanitizeSemesters(d.semesters);
   reminders = sanitizeReminders(d.reminders);
   calSettings = sanitizeCalendarSettings(d.calSettings);
+  subjectColors = sanitizeSubjectColors(d.subjectColors);
   suppressChangeHook = fromSync;
   try {
     saveAllData();
@@ -1471,6 +1655,7 @@ function saveAllData() {
   setStorage(KEYS.semesters, semesters);
   setStorage(KEYS.reminders, reminders);
   setStorage(KEYS.calendar, calSettings);
+  setStorage(KEYS.subjectColors, subjectColors);
 }
 
 async function importData(input) {
@@ -1505,6 +1690,7 @@ function clearAllData() {
   semesters = [];
   reminders = sanitizeReminders({});
   calSettings = sanitizeCalendarSettings({});
+  subjectColors = {};
   saveAllData();
   renderAll();
   closeModal('settings-modal');
@@ -1569,6 +1755,7 @@ function renderAll() {
 
 // เมื่อกลับมาที่แอป: อัปเดตเวลาจับเวลา และวาดใหม่ถ้าขึ้นวันใหม่แล้ว
 function refreshTimeSensitive() {
+  renderToday();
   if (todayIndex() !== renderedDayIndex) {
     renderSchedule();
     renderExams();
@@ -1628,7 +1815,7 @@ function init() {
   safe('simulator', () => { if (Object.values(gpaSim).every((v) => v !== '')) simulateTarget(); });
   safe('notify', renderNotifyStatus);
   safe('install', renderInstallSection);
-  safe('tab', () => switchTab(getStorage(KEYS.tab, 'schedule')));
+  safe('tab', () => switchTab(getStorage(KEYS.tab, 'today')));
   safe('icons', refreshIcons);
   setTimeout(() => safe('reminders-check', checkReminders), 1500);
   setInterval(() => safe('refresh', refreshTimeSensitive), 30000);

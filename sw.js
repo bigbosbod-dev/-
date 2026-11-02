@@ -1,10 +1,11 @@
 // Service worker ของ StudyFlow: ทำให้เปิดแอปได้แม้ไม่มีอินเทอร์เน็ต
 // เมื่อแก้ไฟล์ของแอป ให้เปลี่ยนเลขเวอร์ชันนี้ เพื่อให้แคชเก่าถูกล้าง
-const CACHE = 'studyflow-v7';
+const CACHE = 'studyflow-v9';
 
 const APP_SHELL = [
   './',
   'index.html',
+  'css/tailwind.css',
   'css/style.css',
   'js/app.js',
   'js/sync.js',
@@ -17,7 +18,6 @@ const APP_SHELL = [
 
 // ไลบรารีจาก CDN (ระบุเวอร์ชันตายตัว จึงแคชได้ถาวร)
 const CDN_ASSETS = [
-  'https://cdn.tailwindcss.com/3.4.16',
   'https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js',
 ];
