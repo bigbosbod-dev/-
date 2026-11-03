@@ -2484,27 +2484,48 @@ async function uploadPendingPhotos() {
   }
 }
 
+// หาว่ารูปนี้เป็นของวิชาไหน (รูปอาจยืมมาจากวิชาอื่นที่เรียนห้องเดียวกัน)
+function photoOwnerKey(id) {
+  return Object.keys(subjectInfo).find((k) => (subjectInfo[k].photos || []).some((p) => p.id === id)) || null;
+}
+
+function setPhotosByKey(k, photos) {
+  if (currentSheetId) saveSubjectInfoNow();
+  const cur = { ...(subjectInfo[k] || { teacher: '', notes: '', links: [] }) };
+  if (photos.length) cur.photos = photos; else delete cur.photos;
+  subjectInfo = { ...subjectInfo, [k]: cur };
+  setStorage(KEYS.subjectInfo, subjectInfo);
+}
+
+function ownerName(k) {
+  const s = schedules.find((x) => subjectKey(x.name) === k);
+  return s ? s.name : k;
+}
+
 function openPhoto(schedId, id) {
   const sched = schedules.find((x) => x.id === schedId);
   const photo = photosFor(sched).find((p) => p.id === id);
-  if (!photo) return;
-  const own = (infoFor(sched.name).photos || []).some((p) => p.id === id);
-  viewingPhoto = { schedId, id, own };
+  const key = photoOwnerKey(id);
+  if (!photo || !key) return;
+  viewingPhoto = { schedId, id, key };
   const img = $('photo-view-img');
   img.removeAttribute('src');
   photoUrl(photo).then((url) => { if (url && viewingPhoto && viewingPhoto.id === id) img.src = url; });
   $('photo-view-caption').value = photo.caption;
-  $('photo-view-caption').disabled = !own;
-  $('photo-view-delete').classList.toggle('hidden', !own);
+  const borrowed = key !== subjectKey(sched.name);
+  $('photo-view-from').textContent = borrowed ? `รูปนี้มาจากวิชา ${ownerName(key)} (เรียนห้องเดียวกัน) แก้หรือลบที่นี่จะมีผลกับวิชานั้นด้วย` : '';
+  $('photo-view-from').classList.toggle('hidden', !borrowed);
   openModal('photo-modal');
 }
 
 function savePhotoCaption() {
-  if (!viewingPhoto || !viewingPhoto.own) return;
-  const sched = schedules.find((x) => x.id === viewingPhoto.schedId);
-  if (!sched) return;
+  if (!viewingPhoto) return;
+  const { key, id } = viewingPhoto;
+  const list = (subjectInfo[key] && subjectInfo[key].photos) || [];
   const caption = $('photo-view-caption').value.trim().slice(0, 100);
-  setSubjectPhotos(sched, (infoFor(sched.name).photos || []).map((p) => (p.id === viewingPhoto.id ? { ...p, caption } : p)));
+  const cur = list.find((p) => p.id === id);
+  if (!cur || cur.caption === caption) return;
+  setPhotosByKey(key, list.map((p) => (p.id === id ? { ...p, caption } : p)));
 }
 
 function closePhoto() {
@@ -2512,19 +2533,22 @@ function closePhoto() {
   viewingPhoto = null;
   closeModal('photo-modal');
   if (currentSheetId) renderSubjectSheet();
+  renderToday();
+  renderNextClass();
 }
 
 async function deleteViewingPhoto() {
-  if (!viewingPhoto || !viewingPhoto.own || !confirm('ลบรูปนี้ใช่ไหม?')) return;
-  const sched = schedules.find((x) => x.id === viewingPhoto.schedId);
-  if (!sched) return;
-  const photo = (infoFor(sched.name).photos || []).find((p) => p.id === viewingPhoto.id);
-  setSubjectPhotos(sched, (infoFor(sched.name).photos || []).filter((p) => p.id !== viewingPhoto.id));
+  if (!viewingPhoto || !confirm('ลบรูปนี้ใช่ไหม?')) return;
+  const { key, id } = viewingPhoto;
+  const list = (subjectInfo[key] && subjectInfo[key].photos) || [];
+  const photo = list.find((p) => p.id === id);
+  setPhotosByKey(key, list.filter((p) => p.id !== id));
   viewingPhoto = null;
   closeModal('photo-modal');
-  renderSubjectSheet();
+  if (currentSheetId) renderSubjectSheet();
   renderToday();
   renderNextClass();
+  toast('ลบรูปแล้ว', 'success');
   if (!photo) return;
   try { await idbPhoto('delete', photo.id); } catch (e) { /* ignore */ }
   if (photoUrls.has(photo.id)) { URL.revokeObjectURL(photoUrls.get(photo.id)); photoUrls.delete(photo.id); }
