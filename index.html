@@ -387,7 +387,8 @@
   </main>
 
   <!-- ===== Bottom navigation (มือถือ) ===== -->
-  <nav class="md:hidden shrink-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 safe-bottom" aria-label="เมนูหลัก">
+  <nav class="md:hidden shrink-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 safe-bottom relative" aria-label="เมนูหลัก">
+    <span id="nav-indicator" class="nav-indicator" aria-hidden="true"></span>
     <button onclick="switchTab('today')" data-tab="today" class="bottom-tab"><i data-lucide="sun-medium" class="w-5 h-5"></i>วันนี้</button>
     <button onclick="switchTab('schedule')" data-tab="schedule" class="bottom-tab"><i data-lucide="calendar-days" class="w-5 h-5"></i>ตาราง</button>
     <button onclick="switchTab('kanban')" data-tab="kanban" class="bottom-tab">

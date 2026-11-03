@@ -161,6 +161,87 @@ function animateIn(el) {
   el.classList.add('tab-enter');
 }
 
+// ไล่ตัวเลขจากค่าเดิมไปค่าใหม่ (จำค่าเดิมไว้ตาม key จะได้ไม่นับใหม่ทุกครั้งที่วาดหน้าซ้ำ)
+const countCache = {};
+const COUNT_FORMATS = {
+  int: (v) => String(Math.round(v)),
+  dec1: (v) => (Math.round(v * 10) / 10).toLocaleString('th-TH', { maximumFractionDigits: 1 }),
+  dec2: (v) => v.toFixed(2),
+  dur: (v) => formatDuration(Math.round(v)),
+};
+
+function countUp(el, key, to, format = 'int', duration = 700) {
+  if (!el || !Number.isFinite(to)) return;
+  const fmt = COUNT_FORMATS[format] || COUNT_FORMATS.int;
+  const from = countCache[key];
+  countCache[key] = to;
+  if (reduceMotion.matches || from === undefined && to === 0 || from === to) { el.textContent = fmt(to); return; }
+  const start = performance.now();
+  const base = from === undefined ? 0 : from;
+  const step = (now) => {
+    const k = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - k, 3);
+    el.textContent = fmt(base + (to - base) * eased);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+// ใช้กับ HTML ที่สร้างใหม่: <span data-count="47" data-count-key="..." data-count-fmt="dec1">
+function runCountUps(root) {
+  root.querySelectorAll('[data-count]').forEach((el) => {
+    countUp(el, el.dataset.countKey, parseFloat(el.dataset.count), el.dataset.countFmt);
+  });
+}
+
+// อีโมจิลอยขึ้นจากจุดที่แตะ
+function floatEmoji(emoji, { x = lastPointer.x, y = lastPointer.y } = {}) {
+  if (reduceMotion.matches) return;
+  const el = document.createElement('span');
+  el.className = 'float-emoji';
+  el.textContent = emoji;
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1000);
+}
+
+// อีโมจิโปรยลงมาทั้งจอ
+function emojiRain(list, count = 18) {
+  if (reduceMotion.matches) return;
+  const layer = document.createElement('div');
+  layer.className = 'confetti-layer';
+  for (let i = 0; i < count; i++) {
+    const e = document.createElement('span');
+    e.className = 'rain-emoji';
+    e.textContent = list[i % list.length];
+    e.style.left = `${Math.random() * 100}%`;
+    e.style.animationDelay = `${Math.random() * 600}ms`;
+    e.style.animationDuration = `${1600 + Math.random() * 900}ms`;
+    e.style.fontSize = `${18 + Math.random() * 18}px`;
+    layer.appendChild(e);
+  }
+  document.body.appendChild(layer);
+  setTimeout(() => layer.remove(), 3400);
+}
+
+// คลื่นแผ่ออกจากจุดที่แตะบนปุ่มหลัก ๆ
+const RIPPLE_SELECTOR = '.btn-primary, .btn-secondary, .pill, .theme-opt, .bottom-tab';
+document.addEventListener('pointerdown', (e) => {
+  if (reduceMotion.matches) return;
+  const host = e.target.closest(RIPPLE_SELECTOR);
+  if (!host || host.disabled) return;
+  const r = host.getBoundingClientRect();
+  const size = Math.max(r.width, r.height) * 2;
+  const dot = document.createElement('span');
+  dot.className = 'ripple';
+  dot.style.width = dot.style.height = `${size}px`;
+  dot.style.left = `${e.clientX - r.left - size / 2}px`;
+  dot.style.top = `${e.clientY - r.top - size / 2}px`;
+  host.appendChild(dot);
+  setTimeout(() => dot.remove(), 600);
+});
+
 // =====================================================================
 // Data sanitizers (ใช้ทั้งตอนโหลดและตอนนำเข้าไฟล์)
 // =====================================================================
@@ -433,7 +514,18 @@ function setTheme(pref) {
 }
 
 function toggleTheme() {
-  setTheme(document.documentElement.classList.contains('dark') ? 'light' : 'dark');
+  const next = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
+  if (!document.startViewTransition || reduceMotion.matches) return setTheme(next);
+  // สีใหม่กระจายเป็นวงกลมออกจากปุ่มที่กด
+  const { x, y } = lastPointer;
+  const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  const t = document.startViewTransition(() => setTheme(next));
+  t.ready.then(() => {
+    document.documentElement.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+      { duration: 550, easing: 'cubic-bezier(.4, 0, .2, 1)', pseudoElement: '::view-transition-new(root)' },
+    );
+  }).catch(() => {});
 }
 
 darkQuery.addEventListener?.('change', applyTheme);
@@ -443,8 +535,19 @@ darkQuery.addEventListener?.('change', applyTheme);
 // =====================================================================
 const TABS = ['today', 'schedule', 'kanban', 'pomodoro', 'gpa'];
 
+let currentTab = null;
+
+function moveNavIndicator(tab) {
+  const ind = document.getElementById('nav-indicator');
+  if (ind) ind.style.transform = `translateX(${TABS.indexOf(tab) * 100}%)`;
+}
+
 function switchTab(tab) {
   if (!TABS.includes(tab)) tab = 'today';
+  const dir = currentTab && TABS.indexOf(tab) < TABS.indexOf(currentTab) ? 'from-left' : 'from-right';
+  const changed = currentTab !== null && currentTab !== tab;
+  currentTab = tab;
+  moveNavIndicator(tab);
   TABS.forEach((t) => $(`tab-${t}`).classList.toggle('hidden', t !== tab));
   document.querySelectorAll('[data-tab]').forEach((b) => {
     const on = b.dataset.tab === tab;
@@ -453,7 +556,10 @@ function switchTab(tab) {
     else b.removeAttribute('aria-current');
   });
   setStorage(KEYS.tab, tab);
-  animateIn($(`tab-${tab}`));
+  const section = $(`tab-${tab}`);
+  section.classList.remove('from-left', 'from-right');
+  if (changed) section.classList.add(dir);
+  animateIn(section);
   const scroller = document.getElementById('app-scroll');
   if (scroller) scroller.scrollTop = 0;
 }
@@ -529,7 +635,7 @@ function scheduleGridHtml(list, { editable = false, colors = subjectColors } = {
 
 function scheduleCardHtml(item, { editable = true, colors = subjectColors } = {}) {
   return `
-    <div ${editable ? `onclick="openSubjectSheet(${item.id})"` : ''} ${subjectStyle(item.name, colors, editable)} class="subj subj-tint subj-bar border border-slate-200/70 dark:border-slate-700/60 p-3 rounded-xl relative group ${editable ? 'cursor-pointer hover:shadow-sm' : ''} transition">
+    <div ${editable ? `onclick="openSubjectSheet(${item.id})"` : ''} ${subjectStyle(item.name, colors, editable)} class="subj subj-tint subj-bar border border-slate-200/70 dark:border-slate-700/60 p-3 rounded-xl relative group ${editable ? 'cursor-pointer hover:shadow-sm pressable' : ''} transition">
       ${editable ? `<button onclick="event.stopPropagation(); deleteSchedule(${item.id})" aria-label="ลบวิชา" class="absolute top-2 right-2 text-slate-400 hover:text-rose-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition">
         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
       </button>` : ''}
@@ -730,7 +836,7 @@ function renderExams() {
     else { badge = `อีก ${n} วัน`; tone = DUE_BADGE.normal; }
     const detail = [formatThaiDate(e.date), e.time, e.room].filter(Boolean).map(escapeHtml).join(' · ');
     return `
-      <div onclick="openExamModal(${e.id})" class="relative p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-400/50 cursor-pointer transition ${isPast ? 'opacity-60' : ''}">
+      <div onclick="openExamModal(${e.id})" class="pressable relative p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-400/50 cursor-pointer transition ${isPast ? 'opacity-60' : ''}">
         <button onclick="event.stopPropagation(); deleteExam(${e.id})" aria-label="ลบวันสอบ" class="absolute top-3 right-3 text-slate-400 hover:text-rose-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
         <div class="flex items-center gap-3 pr-6">
           ${!isPast && n > 1 ? `<div class="text-center shrink-0 w-14"><div class="text-2xl font-black text-indigo-600 dark:text-indigo-300 leading-none">${n}</div><div class="text-[10px] muted">วัน</div></div>` : ''}
@@ -1017,7 +1123,7 @@ function renderTasks() {
     if (info.level === 'urgent' || info.level === 'soon') soon++;
     const dateText = task.due && info.level !== 'done' ? ` · ${formatThaiDate(task.due)}` : '';
     html[task.status].push(`
-      <div onclick="openTaskModal(${task.id})" class="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 ${DUE_BORDER[info.level] || ''} shadow-sm hover:shadow transition space-y-2 cursor-pointer ${task.status === 'done' ? 'opacity-70' : ''}">
+      <div onclick="openTaskModal(${task.id})" class="${task.id === lastMovedTaskId ? 'card-pop ' : ''}pressable bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 ${DUE_BORDER[info.level] || ''} shadow-sm hover:shadow transition space-y-2 cursor-pointer ${task.status === 'done' ? 'opacity-70' : ''}">
         <div class="flex justify-between items-start gap-2">
           <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 truncate inline-flex items-center gap-1.5">${subjDot(task.subject)}${escapeHtml(task.subject)}</span>
           <button onclick="event.stopPropagation(); deleteTask(${task.id})" aria-label="ลบงาน" class="text-slate-400 hover:text-rose-500 shrink-0">
@@ -1037,7 +1143,7 @@ function renderTasks() {
 
   STATUSES.forEach((s) => {
     $(`col-${s}`).innerHTML = html[s].join('') || '<p class="text-xs muted text-center py-6">ไม่มีงาน</p>';
-    $(`count-${s}`).textContent = count[s];
+    countUp($(`count-${s}`), `kanban-${s}`, count[s]);
   });
 
   const parts = [];
@@ -1102,7 +1208,10 @@ function saveTask() {
     tasks = tasks.map((t) => (t.id === editingTaskId ? { ...t, title, subject, due, notes } : t));
     toast('แก้ไขงานแล้ว', 'success');
   } else {
-    tasks.push({ id: uid(), title, subject, due, status: 'todo', notes });
+    const newId = uid();
+    tasks.push({ id: newId, title, subject, due, status: 'todo', notes });
+    lastMovedTaskId = newId;
+    setTimeout(() => { if (lastMovedTaskId === newId) lastMovedTaskId = null; }, 600);
     toast('เพิ่มงานแล้ว', 'success');
   }
   setStorage(KEYS.tasks, tasks);
@@ -1110,8 +1219,12 @@ function saveTask() {
   renderTasks();
 }
 
+let lastMovedTaskId = null;
+
 function moveTask(id, nextStatus) {
   if (!STATUSES.includes(nextStatus)) return;
+  lastMovedTaskId = id;
+  setTimeout(() => { if (lastMovedTaskId === id) lastMovedTaskId = null; }, 600);
   tasks = tasks.map((t) => (t.id === id ? { ...t, status: nextStatus, doneAt: nextStatus === 'done' ? todayStr() : '' } : t));
   setStorage(KEYS.tasks, tasks);
   renderTasks();
@@ -1152,6 +1265,7 @@ let audioCtx = null;
 function updateTimerUI() {
   const ringBox = $('timer-ring-box');
   if (ringBox) ringBox.classList.toggle('timer-running', isRunning);
+  $('timer-display').classList.toggle('timer-final', isRunning && timeLeft > 0 && timeLeft <= 10);
   const mins = pad2(Math.floor(timeLeft / 60));
   const secs = pad2(timeLeft % 60);
   $('timer-display').textContent = `${mins}:${secs}`;
@@ -1200,6 +1314,8 @@ function toggleTimer() {
   unlockAudio();
   requestNotificationPermission();
   isRunning = true;
+  const box = $('timer-ring-box');
+  if (box && !reduceMotion.matches) { box.classList.remove('pop-once'); void box.offsetWidth; box.classList.add('pop-once'); }
   // อิงเวลาจริงแทนการนับทีละวินาที เพราะเบราว์เซอร์จะชะลอ timer เมื่อสลับไปแท็บอื่น
   endAt = Date.now() + timeLeft * 1000;
   timerInterval = setInterval(tick, 1000);
@@ -1216,7 +1332,10 @@ function completeSession() {
   if (mode === 'focus') {
     focusCount++;
     const subject = logStudyTime(pomo.focus);
-    if (!document.hidden) confetti({ x: window.innerWidth / 2, y: window.innerHeight / 2, count: 32, spread: 1.6 });
+    if (!document.hidden) {
+      confetti({ x: window.innerWidth / 2, y: window.innerHeight / 2, count: 32, spread: 1.6 });
+      emojiRain(['🎉', '📚', '✨', '🔥', '💪'], 22);
+    }
     notify('หมดเวลาโฟกัส! 🎉', `อ่าน ${subject} ไปอีก ${pomo.focus} นาที ได้เวลาพักแล้ว`);
     setMode(focusCount % pomo.longEvery === 0 ? 'long' : 'short');
   } else {
@@ -1272,7 +1391,7 @@ function renderStudySummary() {
     </div>`;
   $('study-summary').innerHTML = tile(formatDuration(minutesOn(todayStr())), 'วันนี้')
     + tile(formatDuration(weekTotal), '7 วันล่าสุด')
-    + tile(`${streak} วัน${streak >= 3 ? ' 🔥' : ''}`, 'อ่านติดต่อกัน');
+    + tile(`${streak} วัน${streak >= 3 ? ' <span class="flame">🔥</span>' : ''}`, 'อ่านติดต่อกัน');
   $('study-week-chart').innerHTML = barChartHtml(week, { label: `นาทีที่อ่านใน 7 วันล่าสุด รวม ${weekTotal} นาที`, format: (v) => formatDuration(v) });
 }
 
@@ -1553,7 +1672,7 @@ function calculateGPA() {
     totalPoints += r.credits * GRADE_POINTS[r.grade];
   });
   const gpa = totalCredits > 0 ? totalPoints / totalCredits : 0;
-  $('gpa-result').textContent = gpa.toFixed(2);
+  countUp($('gpa-result'), 'gpa', gpa, 'dec2');
   $('gpa-total-credits').textContent = `รวมทั้งหมด ${totalCredits} หน่วยกิต`;
 
   // ถ้ากรอก GPAX เดิมไว้ใน Simulator ให้ประมาณ GPAX ใหม่ให้ด้วย
@@ -1674,6 +1793,7 @@ function setAttendance(schedId, date, status) {
   attendance = { ...attendance, [schedId]: marks };
   if (!Object.keys(marks).length) delete attendance[schedId];
   setStorage(KEYS.attendance, attendance);
+  if (marks[date]) floatEmoji({ present: '✅', late: '⏰', leave: '📝', absent: '😢' }[status]);
   const sched = schedules.find((x) => x.id === schedId);
   const a = sched ? attendanceSummary(sched) : null;
   if (a && (status === 'absent' || status === 'leave') && marks[date]) {
@@ -1724,7 +1844,7 @@ function renderSubjectSheet() {
 
   const a = attendanceSummary(sched);
   const pct = a.marked ? Math.round(((a.present + a.late) / a.marked) * 100) : null;
-  const tile = (v, l, cls = 'heading') => `<div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2 text-center"><div class="text-lg font-bold ${cls}">${v}</div><div class="text-[10px] muted">${l}</div></div>`;
+  const tile = (v, l, cls = 'heading') => `<div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2 text-center"><div class="text-lg font-bold ${cls}" data-count="${v}" data-count-key="att-${sched.id}-${l}">${v}</div><div class="text-[10px] muted">${l}</div></div>`;
   $('sheet-attend-summary').innerHTML = `
     <div class="grid grid-cols-4 gap-2">
       ${tile(a.present, 'มา')}${tile(a.late, 'สาย')}${tile(a.leave, 'ลา')}${tile(a.absent, 'ขาด', a.absent ? 'text-rose-600 dark:text-rose-400' : 'heading')}
@@ -1733,6 +1853,7 @@ function renderSubjectSheet() {
       ขาด+ลาแล้ว ${a.missed} จากที่ขาดได้ ${a.max} ครั้ง (ต้องเข้าเรียน ${attendSettings.required}% ของ ${attendSettings.weeks} สัปดาห์)${pct !== null ? ` · เข้าเรียน ${pct}% ของคาบที่เช็กแล้ว` : ''}
     </p>`;
 
+  runCountUps($('sheet-attend-summary'));
   const dates = classDates(sched);
   $('sheet-attend-list').innerHTML = dates.length ? dates.map((d) => `
     <div class="flex items-center justify-between gap-2 py-2">
@@ -1868,6 +1989,9 @@ function renderScoreSection(sched) {
     $('sheet-score-summary').innerHTML = '<p class="text-xs muted">ยังไม่มีคะแนน จดคะแนนงาน ควิซ หรือสอบที่ได้คืนมา แอปจะประมาณเกรดให้</p>';
   } else {
     const projGrade = sm.projected === null ? '-' : gradeFor(sm.projected);
+    const gradeKey = `grade-${sched.id}`;
+    const gradeChanged = countCache[gradeKey] !== undefined && countCache[gradeKey] !== projGrade;
+    countCache[gradeKey] = projGrade;
     const needChips = sm.needs.map((n) => {
       if (n.state === 'safe') return `<span class="px-2 py-1 rounded-lg text-[11px] ${DUE_BADGE.done}">${n.grade} ✓ ได้แน่นอน</span>`;
       if (n.state === 'impossible') return `<span class="px-2 py-1 rounded-lg text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 line-through">${n.grade}</span>`;
@@ -1876,13 +2000,14 @@ function renderScoreSection(sched) {
     }).join('');
     $('sheet-score-summary').innerHTML = `
       <div class="grid grid-cols-3 gap-2">
-        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2 text-center"><div class="text-lg font-bold heading">${fmt1(sm.earned)}<span class="text-xs muted">/${fmt1(sm.counted)}</span></div><div class="text-[10px] muted">ได้แล้ว (จากที่เก็บไป)</div></div>
-        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2 text-center"><div class="text-lg font-bold heading">${fmt1(sm.remaining)}</div><div class="text-[10px] muted">คะแนนที่ยังเหลือ</div></div>
-        <div class="bg-indigo-50 dark:bg-indigo-500/15 rounded-xl p-2 text-center"><div class="text-lg font-black text-indigo-600 dark:text-indigo-300">${projGrade}</div><div class="text-[10px] muted">เกรดที่คาด</div></div>
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2 text-center"><div class="text-lg font-bold heading"><span data-count="${sm.earned}" data-count-key="score-e-${sched.id}" data-count-fmt="dec1">${fmt1(sm.earned)}</span><span class="text-xs muted">/${fmt1(sm.counted)}</span></div><div class="text-[10px] muted">ได้แล้ว (จากที่เก็บไป)</div></div>
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2 text-center"><div class="text-lg font-bold heading" data-count="${sm.remaining}" data-count-key="score-r-${sched.id}" data-count-fmt="dec1">${fmt1(sm.remaining)}</div><div class="text-[10px] muted">คะแนนที่ยังเหลือ</div></div>
+        <div class="bg-indigo-50 dark:bg-indigo-500/15 rounded-xl p-2 text-center"><div class="text-lg font-black text-indigo-600 dark:text-indigo-300 ${gradeChanged ? 'grade-pop' : ''}">${projGrade}</div><div class="text-[10px] muted">เกรดที่คาด</div></div>
       </div>
       <p class="text-xs muted mt-2">ถ้าทำได้ ${fmt1(sm.rate * 100)}% แบบนี้ต่อไป คาดว่าได้ ${fmt1(sm.projected)} จาก 100 · เกรดสูงสุดที่ยังเป็นไปได้: <b class="heading">${gradeFor(sm.best)}</b></p>
       ${sm.remaining > 0 ? `<div class="text-xs muted mt-2 mb-1">ส่วนที่เหลือ (${fmt1(sm.remaining)} คะแนน) ต้องทำได้:</div><div class="flex flex-wrap gap-1.5">${needChips}</div>` : ''}`;
   }
+  runCountUps($('sheet-score-summary'));
   $('sheet-score-list').innerHTML = sm.items.map((it) => `
     <button onclick="editScore(${it.id})" class="w-full flex items-center justify-between gap-2 py-2 text-left">
       <span class="text-sm heading truncate">${escapeHtml(it.name)}</span>
@@ -1997,10 +2122,11 @@ function weekSummary() {
 }
 
 function renderWeekCard() {
+  setTimeout(() => runCountUps($('today-week')), 0);
   const w = weekSummary();
-  const tile = (v, l) => `<div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3 text-center"><div class="text-lg font-bold heading leading-tight">${v}</div><div class="text-[11px] muted mt-0.5">${l}</div></div>`;
+  const tile = (v, l, n, fmt, unit = '') => `<div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3 text-center"><div class="text-lg font-bold heading leading-tight"><span data-count="${n}" data-count-key="week-${l}" data-count-fmt="${fmt}">${v}</span>${unit}</div><div class="text-[11px] muted mt-0.5">${l}</div></div>`;
   $('today-week').innerHTML = `
-    <div class="grid grid-cols-3 gap-2">${tile(formatDuration(w.minutes), 'อ่านสัปดาห์นี้')}${tile(`${w.done} ชิ้น`, 'งานที่เสร็จ')}${tile(`${w.missed} ครั้ง`, 'ขาด/ลาเรียน')}</div>
+    <div class="grid grid-cols-3 gap-2">${tile(formatDuration(w.minutes), 'อ่านสัปดาห์นี้', w.minutes, 'dur')}${tile(w.done, 'งานที่เสร็จ', w.done, 'int', ' ชิ้น')}${tile(w.missed, 'ขาด/ลาเรียน', w.missed, 'int', ' ครั้ง')}</div>
     <p class="text-xs muted mt-3">7 วันข้างหน้า: งานต้องส่ง <b class="heading">${w.due7}</b> ชิ้น · สอบ <b class="heading">${w.exams7}</b> วิชา</p>`;
 }
 
@@ -2013,7 +2139,11 @@ function renderToday() {
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const hour = now.getHours();
-  $('today-greeting').textContent = hour < 12 ? 'สวัสดีตอนเช้า ☀️' : hour < 17 ? 'สวัสดีตอนบ่าย 🌤️' : 'สวัสดีตอนเย็น 🌙';
+  const [greet, emoji] = hour < 12 ? ['สวัสดีตอนเช้า', '☀️'] : hour < 17 ? ['สวัสดีตอนบ่าย', '🌤️'] : ['สวัสดีตอนเย็น', '🌙'];
+  if ($('today-greeting').dataset.greet !== greet) {
+    $('today-greeting').dataset.greet = greet;
+    $('today-greeting').innerHTML = `${greet} <span class="wave-emoji">${emoji}</span>`;
+  }
   $('today-date').textContent = now.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   // คาบเรียนวันนี้
@@ -2046,7 +2176,7 @@ function renderToday() {
     const info = dueInfo(t);
     return `
       <div class="flex items-center gap-3 py-2">
-        <button onclick="moveTask(${t.id}, 'done')" aria-label="ทำเสร็จแล้ว" title="ทำเสร็จแล้ว" class="w-5 h-5 rounded-md border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 shrink-0"></button>
+        <button onclick="completeFromToday(this, ${t.id})" aria-label="ทำเสร็จแล้ว" title="ทำเสร็จแล้ว" class="today-check w-5 h-5 rounded-md border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 shrink-0"></button>
         <button onclick="openTaskModal(${t.id})" class="min-w-0 flex-1 text-left">
           <div class="text-sm font-medium heading truncate">${escapeHtml(t.title)}</div>
           <div class="text-xs muted flex items-center gap-1.5">${subjDot(t.subject)}<span class="truncate">${escapeHtml(t.subject)}</span>${t.notes ? '<i data-lucide="sticky-note" class="w-3 h-3 shrink-0"></i>' : ''}</div>
@@ -2063,7 +2193,7 @@ function renderToday() {
     return `
       <div class="flex items-center gap-3 py-2">
         <div class="w-12 text-center shrink-0">
-          <div class="text-xl font-black leading-none ${n <= 3 ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-300'}">${n === 0 ? '!' : n}</div>
+          <div class="text-xl font-black leading-none ${n <= 3 ? 'text-rose-600 dark:text-rose-400 pulse-soft' : 'text-indigo-600 dark:text-indigo-300'}">${n === 0 ? '!' : n}</div>
           <div class="text-[10px] muted">${n === 0 ? 'วันนี้' : 'วัน'}</div>
         </div>
         <div class="min-w-0">
@@ -2078,11 +2208,20 @@ function renderToday() {
   const streak = studyStreak();
   $('today-study').innerHTML = `
     <div class="flex items-end gap-6">
-      <div><div class="text-2xl font-bold heading">${formatDuration(mins)}</div><div class="text-xs muted">อ่านวันนี้</div></div>
-      <div><div class="text-2xl font-bold heading">${streak} วัน${streak >= 3 ? ' 🔥' : ''}</div><div class="text-xs muted">อ่านติดต่อกัน</div></div>
+      <div><div class="text-2xl font-bold heading" data-count="${mins}" data-count-key="today-mins" data-count-fmt="dur">${formatDuration(mins)}</div><div class="text-xs muted">อ่านวันนี้</div></div>
+      <div><div class="text-2xl font-bold heading">${streak} วัน${streak >= 3 ? ' <span class="flame">🔥</span>' : ''}</div><div class="text-xs muted">อ่านติดต่อกัน</div></div>
     </div>`;
+  runCountUps($('today-study'));
   renderWeekCard();
   $('today-focus-btn').textContent = isRunning ? 'ดูตัวจับเวลา' : 'เริ่มโฟกัส 25 นาที'.replace('25', String(pomo.focus));
+}
+
+function completeFromToday(btn, id) {
+  if (reduceMotion.matches) return moveTask(id, 'done');
+  btn.classList.add('checked');
+  const row = btn.closest('div');
+  if (row) row.classList.add('row-out');
+  setTimeout(() => moveTask(id, 'done'), 380);
 }
 
 function startFocusFromToday() {
@@ -2104,7 +2243,7 @@ function historyTotals() {
 
 function renderSemesters() {
   const { credits, gpax } = historyTotals();
-  $('gpax-result').textContent = gpax === null ? '-' : gpax.toFixed(2);
+  if (gpax === null) { $('gpax-result').textContent = '-'; delete countCache.gpax; } else countUp($('gpax-result'), 'gpax', gpax, 'dec2');
   $('gpax-credits').textContent = credits ? `รวม ${credits} หน่วยกิต จาก ${semesters.length} เทอม` : 'ยังไม่มีข้อมูล';
   $('semester-rows').innerHTML = semesters.length
     ? semesters.map((x) => `
