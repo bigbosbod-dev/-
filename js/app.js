@@ -439,9 +439,29 @@ function sanitizeSubjectInfo(obj) {
     const entry = { teacher: String(v.teacher || '').slice(0, 100), notes: String(v.notes || '').slice(0, 5000), links };
     const place = sanitizePlace(v.place);
     if (place) entry.place = place;
+    const photos = sanitizePhotos(v.photos);
+    if (photos.length) entry.photos = photos;
     out[subjectKey(k)] = entry;
   });
   return out;
+}
+
+// รูปห้องเรียน: เก็บแค่ข้อมูลอ้างอิง ตัวรูปอยู่ใน IndexedDB ของเครื่อง และใน Supabase Storage เมื่อล็อกอินซิงก์
+const PHOTO_MAX = 5;
+const PHOTO_PATH_RE = /^[0-9a-f-]{36}\/\d{1,20}\.jpg$/;
+
+function sanitizePhotos(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  return list
+    .filter((p) => p && typeof p === 'object')
+    .map((p) => ({
+      id: toId(p.id),
+      caption: String(p.caption || '').slice(0, 100),
+      path: PHOTO_PATH_RE.test(String(p.path || '')) ? String(p.path) : '',
+    }))
+    .filter((p) => !seen.has(p.id) && seen.add(p.id))
+    .slice(0, PHOTO_MAX);
 }
 
 // ตำแหน่งห้องเรียน { lat, lng } (ทศนิยม 6 ตำแหน่ง ≈ 10 ซม.)
@@ -621,6 +641,8 @@ function closeModal(id) {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (typeof currentNote !== 'undefined' && currentNote) saveNoteNow();
+  if (typeof viewingPhoto !== 'undefined' && viewingPhoto) savePhotoCaption();
+  if (typeof currentSheetId !== 'undefined' && currentSheetId && !$('subject-modal').classList.contains('hidden')) saveSubjectInfoNow();
   document.querySelectorAll('.modal').forEach((m) => closeModal(m.id));
 });
 
@@ -2035,6 +2057,7 @@ function renderSubjectSheet() {
     </div>`).join('') : '<p class="text-xs muted py-2">ยังไม่มีคาบที่ผ่านมาให้เช็กชื่อ ถ้าเปิดเทอมมาแล้ว กดปุ่ม "ตั้งวันเปิดเทอม" ด้านล่างเพื่อย้อนเช็กสัปดาห์ก่อน ๆ</p>';
 
   renderPlaceSection(sched);
+  renderPhotoSection(sched);
   const info = infoFor(sched.name);
   $('sheet-links').innerHTML = info.links.length ? info.links.map((l, i) => `
     <div class="flex items-center gap-2">
@@ -2257,6 +2280,247 @@ function applyPlaceText() {
   pickingPlace = false;
   renderSubjectSheet();
   toast('บันทึกตำแหน่งแล้ว', 'success');
+}
+
+// =====================================================================
+// รูปห้องเรียน
+// =====================================================================
+const PHOTO_BUCKET = 'class-photos';
+const photoUrls = new Map(); // id -> object URL (แคชในหน่วยความจำ)
+let photoDbPromise = null;
+let viewingPhoto = null; // { schedId, id, own }
+
+function photoDb() {
+  if (photoDbPromise) return photoDbPromise;
+  photoDbPromise = new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) return reject(new Error('no indexedDB'));
+    const req = indexedDB.open('studyflow-photos', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('photos');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  photoDbPromise.catch(() => { photoDbPromise = null; });
+  return photoDbPromise;
+}
+
+async function idbPhoto(mode, id, blob) {
+  const db = await photoDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('photos', mode === 'get' ? 'readonly' : 'readwrite');
+    const store = tx.objectStore('photos');
+    const req = mode === 'get' ? store.get(String(id)) : mode === 'put' ? store.put(blob, String(id)) : store.delete(String(id));
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+const syncClient = () => (typeof sb !== 'undefined' && sb && typeof currentUser !== 'undefined' && currentUser ? { sb, user: currentUser } : null);
+
+// หารูป: ในเครื่องก่อน ถ้าไม่มีค่อยดาวน์โหลดจากคลาวด์แล้วเก็บไว้
+async function photoBlob(photo) {
+  let blob = null;
+  try { blob = await idbPhoto('get', photo.id); } catch (e) { /* ใช้คลาวด์แทน */ }
+  if (blob) return blob;
+  const c = syncClient();
+  if (!c || !photo.path) return null;
+  const { data, error } = await c.sb.storage.from(PHOTO_BUCKET).download(photo.path);
+  if (error || !data) return null;
+  try { await idbPhoto('put', photo.id, data); } catch (e) { /* ignore */ }
+  return data;
+}
+
+async function photoUrl(photo) {
+  if (photoUrls.has(photo.id)) return photoUrls.get(photo.id);
+  const blob = await photoBlob(photo);
+  if (!blob) return '';
+  const url = URL.createObjectURL(blob);
+  photoUrls.set(photo.id, url);
+  return url;
+}
+
+function photoAttrs(photo) {
+  return `data-photo-id="${photo.id}" data-photo-path="${escapeHtml(photo.path)}"`;
+}
+
+// เติม src ให้ <img data-photo-id> ทั้งหมดในหน้า (โหลดรูปแบบไม่บล็อกหน้าจอ)
+async function hydratePhotos(root = document) {
+  const imgs = [...root.querySelectorAll('img[data-photo-id]:not([src])')];
+  for (const img of imgs) {
+    const url = await photoUrl({ id: Number(img.dataset.photoId), path: img.dataset.photoPath || '' }).catch(() => '');
+    if (url) img.src = url;
+    else img.replaceWith(Object.assign(document.createElement('div'), {
+      className: `${img.className} flex items-center justify-center text-[10px] muted`,
+      textContent: navigator.onLine ? 'ไม่พบรูป' : 'ออฟไลน์',
+    }));
+  }
+}
+
+// รูปของคาบเรียน: ของวิชานั้นก่อน ถ้าไม่มีให้ยืมจากวิชาอื่นที่เรียนห้องเดียวกัน
+function photosFor(sched) {
+  if (!sched) return [];
+  const own = infoFor(sched.name).photos || [];
+  if (own.length) return own;
+  const room = String(sched.room || '').trim().toLowerCase();
+  if (!room) return [];
+  const twin = schedules.find((x) => x !== sched && String(x.room || '').trim().toLowerCase() === room && (infoFor(x.name).photos || []).length);
+  return twin ? infoFor(twin.name).photos : [];
+}
+
+function renderPhotoSection(sched) {
+  const own = infoFor(sched.name).photos || [];
+  const list = photosFor(sched);
+  const borrowed = list.length && !own.length;
+  $('sheet-photos').innerHTML = list.map((p) => `
+    <button type="button" onclick="openPhoto(${sched.id}, ${p.id})" class="relative shrink-0 w-28 text-left">
+      <img ${photoAttrs(p)} alt="${escapeHtml(p.caption || 'รูปห้องเรียน')}" class="w-28 h-28 rounded-xl object-cover bg-slate-100 dark:bg-slate-800" />
+      ${p.caption ? `<span class="block text-[11px] muted truncate mt-1">${escapeHtml(p.caption)}</span>` : ''}
+      ${!p.path && syncClient() ? '<span class="absolute top-1 right-1 text-[10px] px-1.5 rounded bg-black/50 text-white">รออัปโหลด</span>' : ''}
+    </button>`).join('');
+  $('sheet-photos').classList.toggle('hidden', !list.length);
+  $('photo-add-btn').classList.toggle('hidden', own.length >= PHOTO_MAX);
+  $('photo-note').textContent = borrowed
+    ? `ใช้รูปของห้อง ${sched.room} จากวิชาอื่น · เพิ่มรูปของวิชานี้เองได้`
+    : list.length ? `แตะรูปเพื่อดูเต็มจอ แก้คำบรรยาย หรือลบ · ใส่ได้ ${PHOTO_MAX} รูป` : 'ถ่ายรูปหน้าตึก ป้ายชื่อตึก หรือหน้าห้อง กันไปผิดตึก';
+  hydratePhotos($('sheet-photos'));
+}
+
+// ย่อรูปให้ด้านยาวไม่เกิน 1280px และไฟล์ไม่เกิน ~900 KB
+async function compressImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('อ่านรูปไม่ได้'));
+      i.src = url;
+    });
+    const scale = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    for (const q of [0.78, 0.65, 0.5]) {
+      const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', q));
+      if (blob && (blob.size < 900 * 1024 || q === 0.5)) return blob;
+    }
+    throw new Error('ย่อรูปไม่สำเร็จ');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function setSubjectPhotos(sched, photos) {
+  saveSubjectInfoNow();
+  const k = subjectKey(sched.name);
+  const cur = { ...infoFor(sched.name) };
+  if (photos.length) cur.photos = photos; else delete cur.photos;
+  subjectInfo = { ...subjectInfo, [k]: cur };
+  setStorage(KEYS.subjectInfo, subjectInfo);
+}
+
+async function addPhotos(input) {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  const files = [...(input.files || [])];
+  input.value = '';
+  if (!sched || !files.length) return;
+  let photos = [...(infoFor(sched.name).photos || [])];
+  const room = PHOTO_MAX - photos.length;
+  if (room <= 0) return toast(`ใส่รูปได้สูงสุด ${PHOTO_MAX} รูปต่อวิชา`, 'error');
+  if (files.length > room) toast(`ใส่ได้อีก ${room} รูป จะใช้ ${room} รูปแรก`, 'info', 4000);
+  toast('กำลังเพิ่มรูป…', 'info', 1500);
+  for (const file of files.slice(0, room)) {
+    try {
+      const blob = await compressImage(file);
+      const id = uid();
+      await idbPhoto('put', id, blob);
+      photos.push({ id, caption: '', path: '' });
+    } catch (e) {
+      console.warn(e);
+      toast('เพิ่มรูปไม่สำเร็จ (เครื่องอาจพื้นที่เต็ม หรือเป็นไฟล์ที่ไม่ใช่รูป)', 'error', 5000);
+    }
+  }
+  setSubjectPhotos(sched, photos);
+  renderSubjectSheet();
+  renderToday();
+  uploadPendingPhotos();
+}
+
+// อัปโหลดรูปที่ยังไม่ขึ้นคลาวด์ (เรียกหลังเพิ่มรูป และหลังซิงก์)
+let uploadingPhotos = false;
+async function uploadPendingPhotos() {
+  const c = syncClient();
+  if (!c || uploadingPhotos || !navigator.onLine) return;
+  uploadingPhotos = true;
+  try {
+    for (const [k, info] of Object.entries(subjectInfo)) {
+      for (const p of info.photos || []) {
+        if (p.path) continue;
+        let blob = null;
+        try { blob = await idbPhoto('get', p.id); } catch (e) { /* ignore */ }
+        if (!blob) continue;
+        const path = `${c.user.id}/${p.id}.jpg`;
+        const { error } = await c.sb.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+        if (error) { console.warn('photo upload failed', error); continue; }
+        const cur = subjectInfo[k];
+        if (!cur || !cur.photos) continue;
+        subjectInfo = { ...subjectInfo, [k]: { ...cur, photos: cur.photos.map((x) => (x.id === p.id ? { ...x, path } : x)) } };
+        setStorage(KEYS.subjectInfo, subjectInfo);
+      }
+    }
+  } finally {
+    uploadingPhotos = false;
+    if (currentSheetId && $('subject-modal') && !$('subject-modal').classList.contains('hidden')) {
+      const sched = schedules.find((x) => x.id === currentSheetId);
+      if (sched) renderPhotoSection(sched);
+    }
+  }
+}
+
+function openPhoto(schedId, id) {
+  const sched = schedules.find((x) => x.id === schedId);
+  const photo = photosFor(sched).find((p) => p.id === id);
+  if (!photo) return;
+  const own = (infoFor(sched.name).photos || []).some((p) => p.id === id);
+  viewingPhoto = { schedId, id, own };
+  const img = $('photo-view-img');
+  img.removeAttribute('src');
+  photoUrl(photo).then((url) => { if (url && viewingPhoto && viewingPhoto.id === id) img.src = url; });
+  $('photo-view-caption').value = photo.caption;
+  $('photo-view-caption').disabled = !own;
+  $('photo-view-delete').classList.toggle('hidden', !own);
+  openModal('photo-modal');
+}
+
+function savePhotoCaption() {
+  if (!viewingPhoto || !viewingPhoto.own) return;
+  const sched = schedules.find((x) => x.id === viewingPhoto.schedId);
+  if (!sched) return;
+  const caption = $('photo-view-caption').value.trim().slice(0, 100);
+  setSubjectPhotos(sched, (infoFor(sched.name).photos || []).map((p) => (p.id === viewingPhoto.id ? { ...p, caption } : p)));
+}
+
+function closePhoto() {
+  savePhotoCaption();
+  viewingPhoto = null;
+  closeModal('photo-modal');
+  if (currentSheetId) renderSubjectSheet();
+}
+
+async function deleteViewingPhoto() {
+  if (!viewingPhoto || !viewingPhoto.own || !confirm('ลบรูปนี้ใช่ไหม?')) return;
+  const sched = schedules.find((x) => x.id === viewingPhoto.schedId);
+  if (!sched) return;
+  const photo = (infoFor(sched.name).photos || []).find((p) => p.id === viewingPhoto.id);
+  setSubjectPhotos(sched, (infoFor(sched.name).photos || []).filter((p) => p.id !== viewingPhoto.id));
+  viewingPhoto = null;
+  closeModal('photo-modal');
+  renderSubjectSheet();
+  renderToday();
+  if (!photo) return;
+  try { await idbPhoto('delete', photo.id); } catch (e) { /* ignore */ }
+  if (photoUrls.has(photo.id)) { URL.revokeObjectURL(photoUrls.get(photo.id)); photoUrls.delete(photo.id); }
+  const c = syncClient();
+  if (c && photo.path) c.sb.storage.from(PHOTO_BUCKET).remove([photo.path]).catch(() => {});
 }
 
 function saveAttendSettings() {
@@ -3052,9 +3316,12 @@ function renderToday() {
     return `
       <div ${subjectStyle(s.name)} class="subj subj-bar py-2.5 pl-3 pr-1">
         <div class="flex items-center justify-between gap-3 ${faded}">
-          <button onclick="openSubjectSheet(${s.id})" class="min-w-0 text-left">
-            <div class="text-sm font-medium heading truncate">${escapeHtml(s.name)}</div>
-            <div class="text-xs muted">${escapeHtml(s.start)} - ${escapeHtml(s.end)}${s.room ? ` · ${escapeHtml(s.room)}` : ''}</div>
+          <button onclick="openSubjectSheet(${s.id})" class="min-w-0 text-left flex items-center gap-2.5">
+            ${photosFor(s).length ? `<img ${photoAttrs(photosFor(s)[0])} alt="" class="w-10 h-10 rounded-lg object-cover bg-slate-100 dark:bg-slate-800 shrink-0" />` : ''}
+            <span class="min-w-0">
+              <span class="block text-sm font-medium heading truncate">${escapeHtml(s.name)}</span>
+              <span class="block text-xs muted">${escapeHtml(s.start)} - ${escapeHtml(s.end)}${s.room ? ` · ${escapeHtml(s.room)}` : ''}</span>
+            </span>
           </button>
           <div class="flex items-center gap-1.5 shrink-0">
             ${badge}
@@ -3065,6 +3332,7 @@ function renderToday() {
         ${started ? `<div class="mt-2 flex items-center gap-1.5 flex-wrap">${attendanceButtonsHtml(s.id, todayStr())}${attendanceBadgeHtml(s)}</div>` : ''}
       </div>`;
   }).join('') : '<p class="text-sm muted py-2">วันนี้ไม่มีเรียน 🎉</p>';
+  hydratePhotos($('today-classes'));
 
   // งานที่ต้องรีบทำ (เลยกำหนด / ภายใน 3 วัน)
   const urgent = tasks.filter((t) => t.status !== 'done' && daysUntil(t.due) !== null && daysUntil(t.due) <= 3).sort(compareTasks);
