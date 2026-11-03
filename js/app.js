@@ -758,6 +758,10 @@ function renderNextClass() {
 
   const { s, status } = next;
   const room = s.room ? ` · ห้อง ${escapeHtml(s.room)}` : '';
+  // มีรูปตึก/ห้องเรียน: แสดงรูปแทนไอคอน แตะเพื่อดูเต็มจอ
+  const photo = photosFor(s)[0];
+  const photoThumb = (ring) => (photo ? `<button type="button" onclick="event.stopPropagation(); openPhoto(${s.id}, ${photo.id})" aria-label="ดูรูปตึก/ห้องเรียน"
+      class="shrink-0 rounded-xl overflow-hidden ring-2 ${ring}"><img ${photoAttrs(photo)} alt="" class="w-14 h-14 object-cover" /></button>` : '');
 
   if (loud) {
     const label = status === 'now' ? 'กำลังเรียนอยู่' : 'คาบถัดไป · วันนี้';
@@ -766,7 +770,7 @@ function renderNextClass() {
       : `เริ่ม ${escapeHtml(s.start)} (อีก ${formatDuration(next.minutes)})`;
     box.innerHTML = `
       <div class="flex items-center gap-3">
-        <div class="bg-white/15 p-2.5 rounded-xl shrink-0"><i data-lucide="${status === 'now' ? 'book-open' : 'bell'}" class="w-6 h-6"></i></div>
+        ${photoThumb('ring-white/40') || `<div class="bg-white/15 p-2.5 rounded-xl shrink-0"><i data-lucide="${status === 'now' ? 'book-open' : 'bell'}" class="w-6 h-6"></i></div>`}
         <div class="min-w-0">
           <div class="text-xs tracking-wide ${sub}">${label}</div>
           <div class="font-semibold text-lg truncate">${escapeHtml(s.name)}</div>
@@ -776,6 +780,7 @@ function renderNextClass() {
           class="ml-auto shrink-0 inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-medium"><i data-lucide="navigation" class="w-4 h-4"></i> นำทาง</a>` : ''}
       </div>${examLine}`;
     refreshIcons();
+    hydratePhotos(box);
     return;
   }
 
@@ -786,12 +791,14 @@ function renderNextClass() {
   box.innerHTML = `
     <div class="flex items-center gap-3">
       <div class="bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 p-2.5 rounded-xl shrink-0"><i data-lucide="${hadClassToday ? 'circle-check' : 'coffee'}" class="w-6 h-6"></i></div>
-      <div class="min-w-0">
+      <div class="min-w-0 flex-1">
         <div class="font-semibold text-lg heading">${headline}</div>
         <div class="text-sm muted">คาบถัดไป: <b class="heading">${whenDay} ${escapeHtml(s.start)}</b> · ${escapeHtml(s.name)}${room}</div>
       </div>
+      ${photoThumb('ring-slate-200 dark:ring-slate-700')}
     </div>${examLine}`;
   refreshIcons();
+  hydratePhotos(box);
 }
 
 function renderSubjectList() {
@@ -2442,6 +2449,7 @@ async function addPhotos(input) {
   setSubjectPhotos(sched, photos);
   renderSubjectSheet();
   renderToday();
+  renderNextClass();
   uploadPendingPhotos();
 }
 
@@ -2516,6 +2524,7 @@ async function deleteViewingPhoto() {
   closeModal('photo-modal');
   renderSubjectSheet();
   renderToday();
+  renderNextClass();
   if (!photo) return;
   try { await idbPhoto('delete', photo.id); } catch (e) { /* ignore */ }
   if (photoUrls.has(photo.id)) { URL.revokeObjectURL(photoUrls.get(photo.id)); photoUrls.delete(photo.id); }
