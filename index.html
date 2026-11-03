@@ -734,14 +734,18 @@
   </div>
 
   <!-- ===== MODAL: PHOTO VIEWER (อยู่หลัง subject modal เพื่อให้ซ้อนอยู่ด้านบน) ===== -->
-  <div id="photo-modal" class="modal fixed inset-0 bg-black/90 hidden items-center justify-center p-4 z-50" onclick="if (event.target === this) closePhoto()">
+  <div id="photo-modal" class="modal fixed inset-0 bg-black/95 backdrop-blur-md hidden items-center justify-center p-4 z-50" onclick="if (event.target === this) closePhoto()">
     <div class="w-full max-w-lg space-y-3">
-      <div class="flex justify-end gap-2">
-        <button id="photo-view-delete" onclick="deleteViewingPhoto()" class="p-2 rounded-lg text-rose-300 hover:bg-white/10" aria-label="ลบรูป"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+      <div class="flex justify-end">
         <button onclick="closePhoto()" class="p-2 rounded-lg text-white hover:bg-white/10" aria-label="ปิด"><i data-lucide="x" class="w-6 h-6"></i></button>
       </div>
-      <img id="photo-view-img" alt="รูปห้องเรียน" class="w-full max-h-[70vh] object-contain rounded-xl bg-black" />
-      <input id="photo-view-caption" type="text" maxlength="100" class="w-full px-3 py-2 rounded-lg text-sm bg-white/10 text-white border border-white/20 placeholder:text-white/50 outline-none focus:border-white/50 disabled:opacity-70" placeholder="คำบรรยาย เช่น ตึกสีส้ม ข้างโรงอาหาร ขึ้นชั้น 4 เลี้ยวขวา" onchange="savePhotoCaption()" />
+      <img id="photo-view-img" alt="รูปห้องเรียน" class="w-full max-h-[60vh] object-contain rounded-xl bg-black" />
+      <input id="photo-view-caption" type="text" maxlength="100" class="w-full px-3 py-2 rounded-lg text-sm bg-white/10 text-white border border-white/20 placeholder:text-white/50 outline-none focus:border-white/50" placeholder="คำบรรยาย เช่น ตึกสีส้ม ข้างโรงอาหาร ขึ้นชั้น 4 เลี้ยวขวา" onchange="savePhotoCaption()" />
+      <p id="photo-view-from" class="hidden text-xs text-white/70"></p>
+      <div class="grid grid-cols-2 gap-2">
+        <button id="photo-view-delete" onclick="deleteViewingPhoto()" class="inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-medium bg-rose-500/20 text-rose-200 hover:bg-rose-500/30"><i data-lucide="trash-2" class="w-4 h-4"></i> ลบรูป</button>
+        <button onclick="closePhoto()" class="py-2.5 rounded-xl text-sm font-medium bg-white/15 text-white hover:bg-white/25">เสร็จ</button>
+      </div>
     </div>
   </div>
 
