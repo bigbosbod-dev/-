@@ -61,7 +61,7 @@
           งาน &amp; โปรเจกต์
           <span class="kanban-badge badge-dot hidden -top-1 -right-1"></span>
         </button>
-        <button onclick="switchTab('pomodoro')" data-tab="pomodoro" class="tab-btn">Pomodoro</button>
+        <button onclick="switchTab('pomodoro')" data-tab="pomodoro" class="tab-btn">อ่านหนังสือ</button>
         <button onclick="switchTab('gpa')" data-tab="gpa" class="tab-btn">คำนวณเกรด</button>
       </nav>
 
@@ -109,6 +109,11 @@
             <button onclick="openTaskModal()" class="text-xs text-indigo-600 dark:text-indigo-300">+ เพิ่มงาน</button>
           </div>
           <div id="today-tasks" class="divide-y divide-slate-100 dark:divide-slate-800"></div>
+        </div>
+        <div id="today-cards-card" class="card p-5 hidden">
+          <h3 class="font-semibold heading flex items-center gap-2 mb-2"><i data-lucide="layers" class="w-4 h-4 text-indigo-500"></i> แฟลชการ์ด</h3>
+          <p id="today-cards-text" class="text-sm muted mb-3"></p>
+          <button onclick="startReview()" id="today-cards-btn" class="btn-primary w-full text-sm">ทบทวนเลย</button>
         </div>
         <div id="today-exams-card" class="card p-5 hidden">
           <h3 class="font-semibold heading flex items-center gap-2 mb-2"><i data-lucide="notebook-pen" class="w-4 h-4 text-indigo-500"></i> สอบที่ใกล้เข้ามา</h3>
@@ -211,6 +216,13 @@
 
     <!-- 3. POMODORO -->
     <section id="tab-pomodoro" class="hidden space-y-5">
+      <div class="flex justify-center gap-1" role="tablist" aria-label="โหมดการอ่าน">
+        <button onclick="setStudyView('timer')" data-study="timer" class="pill"><i data-lucide="timer" class="w-4 h-4 inline -mt-0.5"></i> จับเวลา</button>
+        <button onclick="setStudyView('cards')" data-study="cards" class="pill"><i data-lucide="layers" class="w-4 h-4 inline -mt-0.5"></i> แฟลชการ์ด</button>
+        <button onclick="setStudyView('notes')" data-study="notes" class="pill"><i data-lucide="notebook-pen" class="w-4 h-4 inline -mt-0.5"></i> โน้ต</button>
+      </div>
+
+      <div id="study-timer" class="space-y-5">
       <div class="max-w-xl mx-auto card p-6 sm:p-8 text-center">
         <h2 class="text-2xl font-bold heading mb-1">Pomodoro Focus Timer</h2>
         <p class="text-sm muted mb-5">โฟกัสเป็นรอบ สลับกับพักสั้น และพักยาวทุก ๆ <span id="long-every-label">4</span> รอบ</p>
@@ -249,6 +261,7 @@
           </button>
         </div>
 
+        <button id="break-review" onclick="startReview()" class="hidden mt-5 w-full rounded-xl px-4 py-3 text-sm font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30"></button>
         <div id="notify-status" class="mt-5 text-xs muted"></div>
 
         <details class="mt-5 text-left group">
@@ -276,6 +289,35 @@
           <button onclick="clearStudyStats()" class="text-xs muted hover:text-rose-500">ล้างสถิติ</button>
         </div>
         <div id="study-stats-list" class="space-y-3 text-sm"></div>
+      </div>
+      </div>
+
+      <!-- แฟลชการ์ด -->
+      <div id="study-cards" class="hidden space-y-5 max-w-xl mx-auto">
+        <div class="card p-6 text-center space-y-3">
+          <div class="text-sm muted">ต้องทบทวนวันนี้</div>
+          <div class="text-5xl font-black text-indigo-600 dark:text-indigo-300"><span id="fc-due-total">0</span><span class="text-lg muted font-semibold"> ใบ</span></div>
+          <p id="fc-due-sub" class="text-xs muted"></p>
+          <div class="flex gap-2 justify-center">
+            <button id="fc-start-all" onclick="startReview()" class="btn-primary"><i data-lucide="play" class="w-4 h-4"></i> เริ่มทบทวน</button>
+            <button onclick="openCardEditor()" class="btn-secondary"><i data-lucide="plus" class="w-4 h-4"></i> เพิ่มการ์ด</button>
+          </div>
+        </div>
+        <div class="card p-5">
+          <h3 class="font-semibold heading mb-1">แยกตามวิชา</h3>
+          <p class="text-xs muted mb-3">แอปเลือกวันทบทวนให้เอง ยิ่งจำได้ดี ยิ่งเว้นระยะนานขึ้น (Spaced Repetition)</p>
+          <div id="fc-decks" class="divide-y divide-slate-100 dark:divide-slate-800"></div>
+        </div>
+      </div>
+
+      <!-- สมุดโน้ต -->
+      <div id="study-notes" class="hidden space-y-4 max-w-3xl mx-auto">
+        <div class="flex gap-2">
+          <input id="notes-search" type="search" class="input" placeholder="ค้นหาโน้ต..." oninput="renderNotesList()" />
+          <button onclick="openNoteEditor()" class="btn-primary !py-2 whitespace-nowrap"><i data-lucide="plus" class="w-4 h-4"></i> โน้ตใหม่</button>
+        </div>
+        <div id="notes-filter" class="flex flex-wrap gap-1.5"></div>
+        <div id="notes-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
       </div>
     </section>
 
@@ -395,7 +437,7 @@
       <i data-lucide="list-todo" class="w-5 h-5"></i>งาน
       <span class="kanban-badge badge-dot hidden top-1 left-1/2 ml-2"></span>
     </button>
-    <button onclick="switchTab('pomodoro')" data-tab="pomodoro" class="bottom-tab"><i data-lucide="timer" class="w-5 h-5"></i>Pomodoro</button>
+    <button onclick="switchTab('pomodoro')" data-tab="pomodoro" class="bottom-tab"><i data-lucide="book-open" class="w-5 h-5"></i>อ่าน</button>
     <button onclick="switchTab('gpa')" data-tab="gpa" class="bottom-tab"><i data-lucide="calculator" class="w-5 h-5"></i>เกรด</button>
   </nav>
 
@@ -495,6 +537,8 @@
           </div>
         </details>
       </div>
+
+      <div id="sheet-study-links" class="grid grid-cols-2 gap-2"></div>
 
       <div class="space-y-2">
         <div class="flex items-center justify-between gap-2">
@@ -604,6 +648,91 @@
         <p><b>iPhone:</b> แนะนำให้สร้างปฏิทินใหม่ชื่อ "StudyFlow" ในแอปปฏิทินก่อน → ดาวน์โหลดไฟล์ → แตะเปิดไฟล์ (ถ้าไปอยู่ในแอปไฟล์ ให้เปิดจากโฟลเดอร์ดาวน์โหลด) → "เพิ่มทั้งหมด" แล้วเลือกปฏิทิน StudyFlow</p>
         <p><b>Google Calendar:</b> เปิดบนคอม → ตั้งค่า → นำเข้าและส่งออก → เลือกไฟล์</p>
         <p><b>ถ้าผิดหรือแก้ตารางเรียน:</b> ลบปฏิทิน "StudyFlow" ทั้งอัน (ปฏิทิน → แตะ ⓘ ข้างชื่อ → ลบปฏิทิน) แล้วดาวน์โหลดไฟล์ใหม่ไปนำเข้าอีกครั้ง หรือแก้/ลบทีละรายการในแอปปฏิทินก็ได้</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: REVIEW (ทบทวนแฟลชการ์ด) ===== -->
+  <div id="review-modal" class="modal fixed inset-0 bg-black/60 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) endReview()">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl safe-bottom-pad">
+      <div class="flex items-center justify-between">
+        <div class="text-sm muted"><span id="review-progress"></span></div>
+        <button onclick="endReview()" class="icon-btn" aria-label="ปิด"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <div class="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div id="review-bar" class="h-full bg-indigo-500 transition-all duration-300" style="width:0%"></div></div>
+      <div id="review-body"></div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: CARD EDITOR ===== -->
+  <div id="card-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('card-modal')">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto safe-bottom-pad">
+      <div class="flex items-center justify-between">
+        <h3 id="card-modal-title" class="text-lg font-bold heading">เพิ่มแฟลชการ์ด</h3>
+        <button onclick="closeModal('card-modal')" class="icon-btn" aria-label="ปิด"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <div>
+        <label class="label">วิชา</label>
+        <div id="card-subject-chips" class="flex flex-wrap gap-1.5"></div>
+      </div>
+      <div class="flex gap-1 text-sm" id="card-mode-tabs">
+        <button onclick="setCardMode('single')" data-card-mode="single" class="pill">ทีละใบ</button>
+        <button onclick="setCardMode('bulk')" data-card-mode="bulk" class="pill">เพิ่มหลายใบ</button>
+      </div>
+      <div id="card-single" class="space-y-3">
+        <div><label class="label" for="card-front">ด้านหน้า (คำถาม / คำศัพท์)</label><textarea id="card-front" rows="2" maxlength="500" class="input" placeholder="เช่น Flip-flop คืออะไร"></textarea></div>
+        <div><label class="label" for="card-back">ด้านหลัง (คำตอบ)</label><textarea id="card-back" rows="3" maxlength="1000" class="input" placeholder="เช่น วงจรเก็บข้อมูล 1 บิต"></textarea></div>
+      </div>
+      <div id="card-bulk" class="hidden space-y-2">
+        <label class="label" for="card-bulk-text">บรรทัดละ 1 ใบ คั่นหน้า/หลังด้วย <b>::</b></label>
+        <textarea id="card-bulk-text" rows="7" class="input font-mono !text-sm" placeholder="AND gate :: ออก 1 เมื่ออินพุตเป็น 1 ทุกตัว&#10;OR gate :: ออก 1 เมื่อมีอินพุตเป็น 1 อย่างน้อยหนึ่งตัว"></textarea>
+      </div>
+      <div class="flex gap-2">
+        <button id="card-delete-btn" onclick="deleteEditingCard()" class="btn-secondary text-sm hidden">ลบ</button>
+        <button id="card-save-btn" onclick="saveCard()" class="btn-primary flex-1 text-sm">บันทึก</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: DECK (การ์ดทั้งหมดของวิชา) ===== -->
+  <div id="deck-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('deck-modal')">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto safe-bottom-pad">
+      <div class="flex items-center justify-between gap-2">
+        <h3 id="deck-title" class="text-lg font-bold heading truncate"></h3>
+        <button onclick="closeModal('deck-modal')" class="icon-btn shrink-0" aria-label="ปิด"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <div id="deck-list" class="divide-y divide-slate-100 dark:divide-slate-800"></div>
+      <button onclick="addCardToDeck()" class="btn-secondary w-full text-sm"><i data-lucide="plus" class="w-4 h-4"></i> เพิ่มการ์ดในวิชานี้</button>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: NOTE EDITOR ===== -->
+  <div id="note-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeNoteEditor()">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-xl h-[92vh] sm:h-[85vh] flex flex-col safe-bottom-pad">
+      <div class="flex items-center gap-2">
+        <input id="note-title" type="text" maxlength="120" class="input !text-base font-semibold" placeholder="ชื่อโน้ต" oninput="noteChanged()" />
+        <button onclick="closeNoteEditor()" class="icon-btn shrink-0" aria-label="ปิด"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <div id="note-subject-chips" class="flex flex-wrap gap-1.5"></div>
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex gap-1">
+          <button onclick="setNoteMode('edit')" data-note-mode="edit" class="pill !py-1 text-xs">เขียน</button>
+          <button onclick="setNoteMode('view')" data-note-mode="view" class="pill !py-1 text-xs">ดูตัวอย่าง</button>
+        </div>
+        <div id="note-toolbar" class="flex gap-0.5">
+          <button type="button" onclick="mdInsert('**', '**')" class="icon-btn !p-1.5 font-bold text-sm" title="ตัวหนา">B</button>
+          <button type="button" onclick="mdInsert('*', '*')" class="icon-btn !p-1.5 italic text-sm" title="ตัวเอียง">I</button>
+          <button type="button" onclick="mdLine('## ')" class="icon-btn !p-1.5 text-sm font-semibold" title="หัวข้อ">H</button>
+          <button type="button" onclick="mdLine('- ')" class="icon-btn !p-1.5" title="รายการ"><i data-lucide="list" class="w-4 h-4"></i></button>
+          <button type="button" onclick="mdLine('- [ ] ')" class="icon-btn !p-1.5" title="เช็กลิสต์"><i data-lucide="list-checks" class="w-4 h-4"></i></button>
+          <button type="button" onclick="mdInsert('`', '`')" class="icon-btn !p-1.5" title="โค้ด"><i data-lucide="code" class="w-4 h-4"></i></button>
+        </div>
+      </div>
+      <textarea id="note-body" class="input flex-1 font-mono !text-sm leading-relaxed resize-none" placeholder="เขียนโน้ตได้เลย รองรับ Markdown เช่น # หัวข้อ, **ตัวหนา**, - รายการ, - [ ] เช็กลิสต์" oninput="noteChanged()"></textarea>
+      <div id="note-preview" class="md flex-1 overflow-y-auto hidden px-1"></div>
+      <div class="flex items-center justify-between text-xs">
+        <span id="note-status" class="muted"></span>
+        <button onclick="deleteCurrentNote()" class="text-rose-500 hover:text-rose-600">ลบโน้ตนี้</button>
       </div>
     </div>
   </div>

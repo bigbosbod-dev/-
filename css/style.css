@@ -216,6 +216,52 @@ button:active:not(:disabled) { transform: scale(0.96); }
 /* สลับธีมแบบวงกลม: ปิดแอนิเมชันเริ่มต้นของ View Transitions แล้วให้ JS คุม */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 
+/* ---------- แฟลชการ์ด: พลิกการ์ดแบบ 3 มิติ ---------- */
+.flip-card { perspective: 1200px; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.flip-inner {
+  position: relative; min-height: 15rem; transform-style: preserve-3d;
+  transition: transform 0.55s cubic-bezier(.3, 1.2, .4, 1);
+}
+.flip-card.flipped .flip-inner { transform: rotateY(180deg); }
+.flip-face {
+  position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center;
+  text-align: center; padding: 1.5rem; border-radius: 1rem;
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-top: 4px solid var(--sc, #6366f1);
+  /* ห้ามใส่ overflow: auto ตรงนี้ Safari จะไม่ซ่อนด้านหลัง ทำให้ข้อความกลับด้าน */
+}
+.dark .flip-face { background: #1e293b; border-color: #334155; border-top-color: var(--sc, #818cf8); }
+.flip-back { transform: rotateY(180deg); }
+/* สลับด้านที่มองเห็นตรงกลางจังหวะพลิก (ไม่พึ่ง backface-visibility อย่างเดียว เผื่อเบราว์เซอร์ที่ไม่รองรับ) */
+.flip-face { transition: opacity 0s linear 0.2s; }
+.flip-face.flip-back { opacity: 0; }
+.flip-card.flipped .flip-face { opacity: 0; }
+.flip-card.flipped .flip-face.flip-back { opacity: 1; }
+.subj.flip-face { --sc: var(--sc-light, #6366f1); }
+.dark .subj.flip-face, .dark .flip-face.subj { --sc: var(--sc-dark, #818cf8); }
+
+/* ---------- โน้ต Markdown ---------- */
+.md { font-size: 0.95rem; line-height: 1.7; color: inherit; word-wrap: break-word; }
+.md h1 { font-size: 1.35rem; font-weight: 700; margin: 0.8em 0 0.35em; }
+.md h2 { font-size: 1.15rem; font-weight: 700; margin: 0.8em 0 0.3em; }
+.md h3 { font-size: 1rem; font-weight: 700; margin: 0.7em 0 0.25em; }
+.md p { margin: 0.45em 0; }
+.md ul, .md ol { margin: 0.4em 0; padding-left: 1.4em; }
+.md ul { list-style: disc; }
+.md ol { list-style: decimal; }
+.md li.task { list-style: none; margin-left: -1.2em; }
+.md li.task.done { color: #94a3b8; text-decoration: line-through; }
+.md .cb { display: inline-block; width: 1.2em; }
+.md code { font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; background: rgba(99, 102, 241, 0.1); padding: 0.1em 0.35em; border-radius: 0.3em; }
+.md pre { background: #0f172a; color: #e2e8f0; padding: 0.8em 1em; border-radius: 0.6em; overflow-x: auto; margin: 0.6em 0; }
+.md pre code { background: none; padding: 0; color: inherit; }
+.md blockquote { border-left: 3px solid #a5b4fc; padding: 0.1em 0 0.1em 0.8em; color: #64748b; margin: 0.5em 0; }
+.dark .md blockquote { color: #94a3b8; }
+.md a { color: #4f46e5; text-decoration: underline; }
+.dark .md a { color: #a5b4fc; }
+.md hr { border: 0; border-top: 1px solid #e2e8f0; margin: 1em 0; }
+.dark .md hr { border-top-color: #334155; }
+
 /* ผู้ใช้ที่ตั้งค่า "ลดภาพเคลื่อนไหว" ไว้: ปิดแอนิเมชันทั้งหมด */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

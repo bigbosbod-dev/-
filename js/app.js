@@ -24,6 +24,10 @@ const KEYS = {
   attendSettings: 'attendance_settings',
   subjectInfo: 'subject_info',
   scores: 'scores_data',
+  notes: 'notes_data',
+  cards: 'flashcards_data',
+  flashLog: 'flash_log',
+  studyView: 'study_view',
 };
 
 // อ่านข้อมูลอย่างปลอดภัย: ถ้าข้อมูลเสียหรือเบราว์เซอร์บล็อก storage จะใช้ค่าเริ่มต้นแทน แอปไม่พัง
@@ -47,6 +51,7 @@ const SYNCED_KEYS = new Set([
   'schedules_data', 'tasks_data', 'study_stats', 'study_log', 'gpa_rows', 'gpa_sim',
   'pomo_settings', 'exams_data', 'semesters_data', 'reminder_settings', 'calendar_settings',
   'subject_colors', 'attendance_data', 'attendance_settings', 'subject_info', 'scores_data',
+  'notes_data', 'flashcards_data', 'flash_log',
 ]);
 // sync.js จะมาแทนที่ฟังก์ชันนี้ เพื่อรู้ว่าข้อมูลเปลี่ยนแล้วต้องอัปโหลด
 let onLocalDataChange = () => {};
@@ -459,6 +464,9 @@ let attendance = sanitizeAttendance(getStorage(KEYS.attendance, {}));
 let attendSettings = sanitizeAttendSettings(getStorage(KEYS.attendSettings, {}));
 let subjectInfo = sanitizeSubjectInfo(getStorage(KEYS.subjectInfo, {}));
 let scores = sanitizeScores(getStorage(KEYS.scores, {}));
+let notes = sanitizeNotes(getStorage(KEYS.notes, []));
+let cards = sanitizeCards(getStorage(KEYS.cards, []));
+let flashLog = sanitizeFlashLog(getStorage(KEYS.flashLog, {}));
 
 // ให้สีวิชาใหม่ตามลำดับชุดสี (เลือกสีที่ใช้น้อยที่สุด เริ่มจากสีแรก)
 function colorFor(name, map = subjectColors, assign = true) {
@@ -583,7 +591,9 @@ function closeModal(id) {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') document.querySelectorAll('.modal').forEach((m) => closeModal(m.id));
+  if (e.key !== 'Escape') return;
+  if (typeof currentNote !== 'undefined' && currentNote) saveNoteNow();
+  document.querySelectorAll('.modal').forEach((m) => closeModal(m.id));
 });
 
 // =====================================================================
@@ -1266,6 +1276,12 @@ function updateTimerUI() {
   const ringBox = $('timer-ring-box');
   if (ringBox) ringBox.classList.toggle('timer-running', isRunning);
   $('timer-display').classList.toggle('timer-final', isRunning && timeLeft > 0 && timeLeft <= 10);
+  const breakBtn = $('break-review');
+  if (breakBtn) {
+    const due = mode !== 'focus' && typeof cards !== 'undefined' ? dueCards().length : 0;
+    breakBtn.classList.toggle('hidden', !due);
+    if (due) breakBtn.textContent = `☕ พักอยู่ ทบทวนแฟลชการ์ด ${due} ใบไหม?`;
+  }
   const mins = pad2(Math.floor(timeLeft / 60));
   const secs = pad2(timeLeft % 60);
   $('timer-display').textContent = `${mins}:${secs}`;
@@ -1836,6 +1852,13 @@ function renderSubjectSheet() {
   const sched = schedules.find((x) => x.id === currentSheetId);
   if (!sched) return;
   renderScoreSection(sched);
+  const k = subjectKey(sched.name);
+  const nNotes = notes.filter((n) => subjectKey(n.subject) === k).length;
+  const subjCards = cards.filter((c) => subjectKey(c.subject) === k);
+  const nDue = subjCards.filter((c) => c.due <= todayStr()).length;
+  $('sheet-study-links').innerHTML = `
+    <button onclick="openSubjectNotes()" class="btn-secondary text-sm !py-2"><i data-lucide="notebook-pen" class="w-4 h-4"></i> โน้ต (${nNotes})</button>
+    <button onclick="openSubjectDeck()" class="btn-secondary text-sm !py-2"><i data-lucide="layers" class="w-4 h-4"></i> การ์ด (${subjCards.length})${nDue ? ` <span class="badge-dot !static !inline-block">${nDue}</span>` : ''}</button>`;
   $('sheet-head').innerHTML = `
     <div ${subjectStyle(sched.name)} class="subj subj-bar pl-3">
       <h3 class="text-lg font-bold heading leading-snug">${escapeHtml(sched.name)}</h3>
@@ -2131,6 +2154,553 @@ function renderWeekCard() {
 }
 
 // =====================================================================
+// โหมดในแท็บ "อ่าน": จับเวลา / แฟลชการ์ด / โน้ต
+// =====================================================================
+const STUDY_VIEWS = ['timer', 'cards', 'notes'];
+
+function setStudyView(view, { quiet = false } = {}) {
+  if (!STUDY_VIEWS.includes(view)) view = 'timer';
+  STUDY_VIEWS.forEach((v) => $(`study-${v}`).classList.toggle('hidden', v !== view));
+  document.querySelectorAll('[data-study]').forEach((b) => b.classList.toggle('active', b.dataset.study === view));
+  setStorage(KEYS.studyView, view);
+  if (view === 'cards') renderFlashcards();
+  if (view === 'notes') renderNotesList();
+  if (!quiet) animateIn($(`study-${view}`));
+  refreshIcons();
+}
+
+// รายชื่อวิชาให้เลือก (จากตารางเรียน + ที่เคยใช้) และปุ่มแตะเลือก
+function subjectOptions(extra = []) {
+  const names = [...new Set([...schedules.map((x) => x.name), ...extra.filter((n) => !GENERIC_SUBJECTS.has(subjectKey(n)))])];
+  names.sort((a, b) => a.localeCompare(b, 'th'));
+  names.push('ทั่วไป');
+  return names;
+}
+
+function subjectChipsHtml(options, current, handler) {
+  const cur = subjectKey(current);
+  return options.map((name, i) => {
+    const on = subjectKey(name) === cur;
+    return `<button type="button" onclick="${handler}(${i})" title="${escapeHtml(name)}"
+      class="max-w-full inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs border transition ${on
+        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200'
+        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}">
+      ${subjDot(name, subjectColors, false)}<span class="truncate">${escapeHtml(name)}</span></button>`;
+  }).join('');
+}
+
+// =====================================================================
+// แฟลชการ์ด + ทบทวนเป็นรอบ (Spaced Repetition แบบ SM-2 อย่างง่าย)
+// =====================================================================
+function sanitizeCards(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((c) => c && typeof c === 'object' && String(c.front || '').trim())
+    .slice(0, 3000)
+    .map((c) => ({
+      id: toId(c.id),
+      subject: String(c.subject || 'ทั่วไป').slice(0, 100),
+      front: String(c.front).slice(0, 500),
+      back: String(c.back || '').slice(0, 1000),
+      due: DATE_RE.test(c.due) ? c.due : todayStr(),
+      interval: clamp(Math.round(Number(c.interval)) || 0, 0, 365),
+      ease: clamp(Number(c.ease) || 2.5, 1.3, 3.5),
+      reps: clamp(Math.round(Number(c.reps)) || 0, 0, 1000),
+      lapses: clamp(Math.round(Number(c.lapses)) || 0, 0, 1000),
+    }));
+}
+
+function sanitizeFlashLog(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  Object.entries(obj).forEach(([d, n]) => { if (DATE_RE.test(d) && Number(n) > 0) out[d] = Math.round(Number(n)); });
+  return out;
+}
+
+const dueCards = (subject = null) => cards
+  .filter((c) => c.due <= todayStr() && (!subject || subjectKey(c.subject) === subjectKey(subject)))
+  .sort((a, b) => a.due.localeCompare(b.due) || a.id - b.id);
+
+// q: 0 = ลืม, 1 = ยาก, 2 = ได้, 3 = ง่าย
+function nextSchedule(c, q) {
+  let { interval, ease, reps, lapses } = c;
+  if (q === 0) return { interval: 1, ease: Math.max(1.3, ease - 0.2), reps: 0, lapses: lapses + 1 };
+  if (q === 1) { interval = reps === 0 ? 1 : Math.max(1, Math.round(interval * 1.2)); ease = Math.max(1.3, ease - 0.15); }
+  else if (q === 2) interval = reps === 0 ? 1 : reps === 1 ? 3 : Math.round(interval * ease);
+  else { interval = reps === 0 ? 3 : reps === 1 ? 5 : Math.round(interval * ease * 1.3); ease = Math.min(3.5, ease + 0.15); }
+  return { interval: clamp(interval, 1, 365), ease, reps: reps + 1, lapses };
+}
+
+const intervalLabel = (d) => (d < 30 ? `${d} วัน` : d < 365 ? `${Math.round(d / 30)} เดือน` : '1 ปี');
+
+let deckSubjects = [];
+
+function renderFlashcards() {
+  if (!$('fc-decks')) return;
+  const due = dueCards();
+  countUp($('fc-due-total'), 'fc-due', due.length);
+  const reviewedToday = flashLog[todayStr()] || 0;
+  $('fc-due-sub').textContent = cards.length
+    ? `มีการ์ดทั้งหมด ${cards.length} ใบ · ทบทวนไปแล้ววันนี้ ${reviewedToday} ใบ`
+    : 'ยังไม่มีการ์ด กด "เพิ่มการ์ด" เพื่อเริ่ม';
+  $('fc-start-all').classList.toggle('hidden', !due.length);
+  deckSubjects = subjectOptions(cards.map((c) => c.subject)).filter((n) => cards.some((c) => subjectKey(c.subject) === subjectKey(n)) || schedules.some((x) => x.name === n));
+  $('fc-decks').innerHTML = deckSubjects.map((name, i) => {
+    const all = cards.filter((c) => subjectKey(c.subject) === subjectKey(name));
+    const d = all.filter((c) => c.due <= todayStr()).length;
+    return `
+      <div class="flex items-center justify-between gap-2 py-2.5">
+        <button onclick="openDeckIdx(${i})" class="min-w-0 text-left flex-1">
+          <div class="text-sm font-medium heading truncate flex items-center gap-1.5">${subjDot(name, subjectColors, false)}${escapeHtml(name)}</div>
+          <div class="text-xs muted">${all.length ? `${all.length} ใบ${d ? ` · <b class="text-indigo-600 dark:text-indigo-300">ต้องทบทวน ${d}</b>` : ' · ทบทวนครบแล้ว ✓'}` : 'ยังไม่มีการ์ด'}</div>
+        </button>
+        ${d ? `<button onclick="startReviewIdx(${i})" class="btn-primary !px-3 !py-1.5 text-xs">ทบทวน</button>` : `<button onclick="openCardEditorIdx(${i})" class="btn-secondary !px-3 !py-1.5 text-xs">+ การ์ด</button>`}
+      </div>`;
+  }).join('') || '<p class="text-sm muted py-2">เพิ่มวิชาในตารางเรียนก่อน หรือกด "เพิ่มการ์ด" แล้วเลือก "ทั่วไป"</p>';
+  refreshIcons();
+}
+
+function renderTodayCards() {
+  const box = $('today-cards-card');
+  if (!box) return;
+  box.classList.toggle('hidden', !cards.length);
+  if (!cards.length) return;
+  const d = dueCards().length;
+  const done = flashLog[todayStr()] || 0;
+  $('today-cards-text').textContent = d ? `วันนี้ต้องทบทวน ${d} ใบ${done ? ` (ทำไปแล้ว ${done} ใบ)` : ''}` : `ทบทวนครบแล้ววันนี้ ✅${done ? ` (${done} ใบ)` : ''}`;
+  $('today-cards-btn').classList.toggle('hidden', !d);
+}
+
+// ---------- เพิ่ม/แก้การ์ด ----------
+let cardSubject = 'ทั่วไป';
+let cardSubjectOpts = [];
+let editingCardId = null;
+let cardMode = 'single';
+
+function openCardEditor(subject = null, cardId = null) {
+  const c = cardId ? cards.find((x) => x.id === cardId) : null;
+  editingCardId = c ? c.id : null;
+  cardSubject = c ? c.subject : subject || (schedules[0] ? schedules[0].name : 'ทั่วไป');
+  $('card-modal-title').textContent = c ? 'แก้ไขแฟลชการ์ด' : 'เพิ่มแฟลชการ์ด';
+  $('card-front').value = c ? c.front : '';
+  $('card-back').value = c ? c.back : '';
+  $('card-bulk-text').value = '';
+  $('card-delete-btn').classList.toggle('hidden', !c);
+  $('card-mode-tabs').classList.toggle('hidden', !!c);
+  setCardMode('single');
+  renderCardSubjectChips();
+  openModal('card-modal');
+}
+
+const openCardEditorIdx = (i) => openCardEditor(deckSubjects[i]);
+
+function renderCardSubjectChips() {
+  cardSubjectOpts = subjectOptions(cards.map((c) => c.subject));
+  $('card-subject-chips').innerHTML = subjectChipsHtml(cardSubjectOpts, cardSubject, 'pickCardSubject');
+}
+
+function pickCardSubject(i) {
+  if (cardSubjectOpts[i] === undefined) return;
+  cardSubject = cardSubjectOpts[i];
+  renderCardSubjectChips();
+}
+
+function setCardMode(m) {
+  cardMode = m === 'bulk' ? 'bulk' : 'single';
+  $('card-single').classList.toggle('hidden', cardMode !== 'single');
+  $('card-bulk').classList.toggle('hidden', cardMode !== 'bulk');
+  document.querySelectorAll('[data-card-mode]').forEach((b) => b.classList.toggle('active', b.dataset.cardMode === cardMode));
+}
+
+function saveCard() {
+  if (cardMode === 'bulk' && !editingCardId) {
+    const lines = $('card-bulk-text').value.split('\n').map((l) => l.trim()).filter(Boolean);
+    const parsed = lines.map((l) => l.split('::')).filter((p) => p.length >= 2 && p[0].trim());
+    if (!parsed.length) return toast('ใส่บรรทัดละ 1 ใบ แบบ "หน้า :: หลัง"', 'error');
+    parsed.forEach((p) => cards.push(sanitizeCards([{ id: uid(), subject: cardSubject, front: p[0].trim(), back: p.slice(1).join('::').trim() }])[0]));
+    setStorage(KEYS.cards, cards);
+    closeModal('card-modal');
+    toast(`เพิ่มการ์ด ${parsed.length} ใบแล้ว${parsed.length < lines.length ? ` (ข้าม ${lines.length - parsed.length} บรรทัดที่ไม่มี ::)` : ''}`, 'success', 4000);
+    renderFlashcards();
+    renderToday();
+    return;
+  }
+  const front = $('card-front').value.trim();
+  const back = $('card-back').value.trim();
+  if (!front) return toast('กรอกด้านหน้าของการ์ด', 'error');
+  if (editingCardId) {
+    cards = cards.map((c) => (c.id === editingCardId ? { ...c, subject: cardSubject, front: front.slice(0, 500), back: back.slice(0, 1000) } : c));
+    setStorage(KEYS.cards, cards);
+    closeModal('card-modal');
+    toast('แก้ไขการ์ดแล้ว', 'success');
+  } else {
+    cards.push(sanitizeCards([{ id: uid(), subject: cardSubject, front, back }])[0]);
+    setStorage(KEYS.cards, cards);
+    // เพิ่มต่อได้เลย ไม่ต้องเปิดหน้าต่างใหม่
+    $('card-front').value = '';
+    $('card-back').value = '';
+    $('card-front').focus();
+    toast('เพิ่มการ์ดแล้ว เพิ่มใบต่อไปได้เลย', 'success', 1800);
+  }
+  renderFlashcards();
+  renderToday();
+  if (deckSubject) renderDeck();
+}
+
+function deleteEditingCard() {
+  if (!editingCardId || !confirm('ลบการ์ดใบนี้ใช่ไหม?')) return;
+  cards = cards.filter((c) => c.id !== editingCardId);
+  setStorage(KEYS.cards, cards);
+  closeModal('card-modal');
+  renderFlashcards();
+  renderToday();
+  if (deckSubject) renderDeck();
+}
+
+// ---------- การ์ดทั้งหมดของวิชา ----------
+let deckSubject = null;
+let deckCardIds = [];
+
+function openDeck(subject) {
+  deckSubject = subject;
+  renderDeck();
+  openModal('deck-modal');
+}
+
+const openDeckIdx = (i) => openDeck(deckSubjects[i]);
+
+function renderDeck() {
+  if (!deckSubject) return;
+  const list = cards.filter((c) => subjectKey(c.subject) === subjectKey(deckSubject)).sort((a, b) => a.due.localeCompare(b.due));
+  deckCardIds = list.map((c) => c.id);
+  $('deck-title').textContent = `${deckSubject} (${list.length} ใบ)`;
+  $('deck-list').innerHTML = list.map((c) => {
+    const n = daysUntil(c.due);
+    const when = n <= 0 ? '<span class="text-indigo-600 dark:text-indigo-300 font-medium">ทบทวนวันนี้</span>' : `ทบทวนอีก ${n} วัน`;
+    return `
+      <button onclick="openCardEditor(null, ${c.id})" class="w-full text-left py-2.5">
+        <div class="text-sm heading truncate">${escapeHtml(c.front)}</div>
+        <div class="text-xs muted truncate">${escapeHtml(c.back) || '-'}</div>
+        <div class="text-[11px] muted mt-0.5">${when}</div>
+      </button>`;
+  }).join('') || '<p class="text-sm muted py-2">ยังไม่มีการ์ดในวิชานี้</p>';
+}
+
+function addCardToDeck() {
+  closeModal('deck-modal');
+  openCardEditor(deckSubject);
+}
+
+// ---------- ทบทวน ----------
+const review = { queue: [], idx: 0, total: 0, done: 0, flipped: false, requeued: new Set() };
+
+function startReview(subject = null) {
+  const list = dueCards(subject);
+  if (!list.length) return toast('ไม่มีการ์ดต้องทบทวนตอนนี้ 🎉', 'success');
+  review.queue = list.slice(0, 200).map((c) => c.id);
+  review.idx = 0;
+  review.total = review.queue.length;
+  review.done = 0;
+  review.flipped = false;
+  review.requeued = new Set();
+  renderReview();
+  openModal('review-modal');
+}
+
+const startReviewIdx = (i) => startReview(deckSubjects[i]);
+
+function renderReview() {
+  const body = $('review-body');
+  if (review.idx >= review.queue.length) {
+    $('review-progress').textContent = 'เสร็จแล้ว!';
+    $('review-bar').style.width = '100%';
+    body.innerHTML = `
+      <div class="text-center py-8 space-y-3">
+        <div class="text-6xl grade-pop">🎉</div>
+        <div class="text-lg font-bold heading">ทบทวนครบ ${review.total} ใบแล้ว</div>
+        <p class="text-sm muted">แอปจะเรียกการ์ดแต่ละใบกลับมาให้ทบทวนในวันที่เหมาะสมเอง</p>
+        <button onclick="endReview()" class="btn-primary w-full">เสร็จสิ้น</button>
+      </div>`;
+    confetti({ x: window.innerWidth / 2, y: window.innerHeight / 2, count: 28, spread: 1.4 });
+    return;
+  }
+  const c = cards.find((x) => x.id === review.queue[review.idx]);
+  if (!c) { review.idx++; return renderReview(); }
+  $('review-progress').textContent = `ใบที่ ${review.done + 1} · เหลือ ${review.queue.length - review.idx} ใบ`;
+  $('review-bar').style.width = `${Math.round((review.done / Math.max(review.total, review.queue.length)) * 100)}%`;
+  const opts = [0, 1, 2, 3].map((q) => nextSchedule(c, q));
+  const btn = (q, label, cls, sub) => `<button onclick="rateCard(${q})" class="flex-1 rounded-xl py-2.5 text-sm font-medium ${cls}"><div>${label}</div><div class="text-[10px] opacity-75">${sub}</div></button>`;
+  body.innerHTML = `
+    <div class="flip-card ${review.flipped ? 'flipped' : ''}" onclick="flipCard()">
+      <div class="flip-inner">
+        <div class="flip-face" ${subjectStyle(c.subject, subjectColors, false)}>
+          <div class="text-[11px] muted flex items-center gap-1.5 mb-3">${subjDot(c.subject, subjectColors, false)}${escapeHtml(c.subject)}</div>
+          <div class="text-xl font-semibold heading whitespace-pre-line break-words">${escapeHtml(c.front)}</div>
+          <div class="text-xs muted mt-6">แตะเพื่อดูคำตอบ</div>
+        </div>
+        <div class="flip-face flip-back">
+          <div class="text-xs muted mb-2 whitespace-pre-line break-words">${escapeHtml(c.front)}</div>
+          <div class="text-lg heading whitespace-pre-line break-words">${escapeHtml(c.back) || '<span class="muted">(ไม่มีคำตอบ)</span>'}</div>
+        </div>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-4 ${review.flipped ? '' : 'invisible'}">
+      ${btn(0, 'ลืม', 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300', 'อีกรอบ')}
+      ${btn(1, 'ยาก', 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300', intervalLabel(opts[1].interval))}
+      ${btn(2, 'จำได้', 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300', intervalLabel(opts[2].interval))}
+      ${btn(3, 'ง่าย', 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300', intervalLabel(opts[3].interval))}
+    </div>`;
+}
+
+function flipCard() {
+  review.flipped = !review.flipped;
+  const el = document.querySelector('#review-body .flip-card');
+  if (el) el.classList.toggle('flipped', review.flipped);
+  const row = document.querySelector('#review-body .flex.gap-2');
+  if (row) row.classList.toggle('invisible', !review.flipped);
+}
+
+function rateCard(q) {
+  const id = review.queue[review.idx];
+  const c = cards.find((x) => x.id === id);
+  if (!c || !review.flipped) return;
+  const next = nextSchedule(c, q);
+  const due = todayStr(next.interval);
+  cards = cards.map((x) => (x.id === id ? { ...x, ...next, due } : x));
+  flashLog = { ...flashLog, [todayStr()]: (flashLog[todayStr()] || 0) + 1 };
+  setStorage(KEYS.cards, cards);
+  setStorage(KEYS.flashLog, flashLog);
+  floatEmoji(['😵', '😅', '👍', '😎'][q]);
+  // ลืม: ให้กลับมาถามอีกครั้งท้ายรอบนี้ (ครั้งเดียว)
+  if (q === 0 && !review.requeued.has(id)) {
+    review.requeued.add(id);
+    review.queue.push(id);
+  }
+  review.done++;
+  review.idx++;
+  review.flipped = false;
+  renderReview();
+}
+
+function endReview() {
+  closeModal('review-modal');
+  renderFlashcards();
+  renderToday();
+  updateTimerUI();
+}
+
+// =====================================================================
+// สมุดโน้ตรายวิชา (Markdown)
+// =====================================================================
+function sanitizeNotes(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((n) => n && typeof n === 'object' && (String(n.title || '').trim() || String(n.body || '').trim()))
+    .slice(0, 1000)
+    .map((n) => ({
+      id: toId(n.id),
+      subject: String(n.subject || 'ทั่วไป').slice(0, 100),
+      title: String(n.title || '').slice(0, 120),
+      body: String(n.body || '').slice(0, 20000),
+      updatedAt: typeof n.updatedAt === 'string' ? n.updatedAt.slice(0, 40) : new Date().toISOString(),
+    }));
+}
+
+// Markdown อย่างง่าย: หนีอักขระ HTML ทั้งหมดก่อน แล้วค่อยแปลงรูปแบบ (ปลอดภัยจากการแทรกโค้ด)
+function renderMarkdown(src) {
+  const inline = (t) => t
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, '$1<em>$2</em>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const lines = escapeHtml(src || '').split('\n');
+  const out = [];
+  let list = null; // 'ul' | 'ol'
+  let para = [];
+  let code = null;
+  const flushPara = () => { if (para.length) { out.push(`<p>${para.map(inline).join('<br>')}</p>`); para = []; } };
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, '');
+    if (code !== null) {
+      if (/^```/.test(line)) { out.push(`<pre><code>${code.join('\n')}</code></pre>`); code = null; } else code.push(raw);
+      continue;
+    }
+    if (/^```/.test(line)) { flushPara(); closeList(); code = []; continue; }
+    let m;
+    if (!line.trim()) { flushPara(); closeList(); continue; }
+    if ((m = /^(#{1,3})\s+(.*)$/.exec(line))) { flushPara(); closeList(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
+    if (/^(-{3,}|\*{3,})$/.test(line.trim())) { flushPara(); closeList(); out.push('<hr>'); continue; }
+    if ((m = /^&gt;\s?(.*)$/.exec(line))) { flushPara(); closeList(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); continue; }
+    if ((m = /^\s*[-*]\s+\[( |x|X)\]\s+(.*)$/.exec(line))) {
+      flushPara(); if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; }
+      out.push(`<li class="task ${m[1] === ' ' ? '' : 'done'}"><span class="cb">${m[1] === ' ' ? '☐' : '☑'}</span> ${inline(m[2])}</li>`);
+      continue;
+    }
+    if ((m = /^\s*[-*]\s+(.*)$/.exec(line))) { flushPara(); if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${inline(m[1])}</li>`); continue; }
+    if ((m = /^\s*\d+[.)]\s+(.*)$/.exec(line))) { flushPara(); if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${inline(m[1])}</li>`); continue; }
+    closeList();
+    para.push(line);
+  }
+  if (code !== null) out.push(`<pre><code>${code.join('\n')}</code></pre>`);
+  flushPara();
+  closeList();
+  return out.join('') || '<p class="muted">(ยังไม่มีเนื้อหา)</p>';
+}
+
+const plainPreview = (md) => String(md || '').replace(/```[\s\S]*?```/g, ' ').replace(/[#>*`~_\[\]()-]/g, ' ').replace(/\s+/g, ' ').trim();
+
+let notesFilter = '';
+let notesFilterOpts = [];
+
+function renderNotesList() {
+  if (!$('notes-list')) return;
+  notesFilterOpts = ['', ...subjectOptions(notes.map((n) => n.subject))];
+  const cur = subjectKey(notesFilter);
+  $('notes-filter').innerHTML = notesFilterOpts.map((name, i) => {
+    const on = subjectKey(name) === cur;
+    const count = name ? notes.filter((n) => subjectKey(n.subject) === subjectKey(name)).length : notes.length;
+    if (name && !count && !schedules.some((x) => x.name === name)) return '';
+    return `<button onclick="pickNotesFilter(${i})" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border ${on
+      ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200'
+      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}">${name ? subjDot(name, subjectColors, false) : ''}<span class="truncate max-w-[10rem]">${escapeHtml(name ? name.split(' ')[0] : 'ทั้งหมด')}</span><span class="muted">${count}</span></button>`;
+  }).join('');
+  const q = ($('notes-search').value || '').trim().toLowerCase();
+  const list = notes
+    .filter((n) => !cur || subjectKey(n.subject) === cur)
+    .filter((n) => !q || `${n.title} ${n.body}`.toLowerCase().includes(q))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  $('notes-list').innerHTML = list.map((n) => `
+    <button onclick="openNoteEditor(${n.id})" ${subjectStyle(n.subject, subjectColors, false)} class="subj subj-bar pressable card p-4 text-left space-y-1">
+      <div class="font-semibold heading truncate">${escapeHtml(n.title || 'ไม่มีชื่อ')}</div>
+      <div class="text-[11px] muted flex items-center gap-1.5"><span class="truncate">${escapeHtml(n.subject)}</span> · ${formatThaiDate(n.updatedAt.slice(0, 10))}</div>
+      <div class="text-xs muted line-clamp-3">${escapeHtml(plainPreview(n.body).slice(0, 240))}</div>
+    </button>`).join('') || `<p class="text-sm muted sm:col-span-2 py-6 text-center">${notes.length ? 'ไม่พบโน้ตที่ค้นหา' : 'ยังไม่มีโน้ต กด "โน้ตใหม่" เพื่อเริ่มจด ✍️'}</p>`;
+}
+
+function pickNotesFilter(i) {
+  notesFilter = notesFilterOpts[i] || '';
+  renderNotesList();
+}
+
+let currentNote = null;
+let noteSubjectOpts = [];
+let noteSaveTimer = null;
+
+function openNoteEditor(id = null, subject = null) {
+  const n = id ? notes.find((x) => x.id === id) : null;
+  currentNote = n ? { ...n } : { id: uid(), subject: subject || notesFilter || (schedules[0] ? schedules[0].name : 'ทั่วไป'), title: '', body: '', updatedAt: '', isNew: true };
+  $('note-title').value = currentNote.title;
+  $('note-body').value = currentNote.body;
+  $('note-status').textContent = n ? `แก้ไขล่าสุด ${formatThaiDate(n.updatedAt.slice(0, 10))}` : 'โน้ตใหม่';
+  renderNoteSubjectChips();
+  openModal('note-modal');
+  setNoteMode(n && n.body ? 'view' : 'edit');
+}
+
+function renderNoteSubjectChips() {
+  noteSubjectOpts = subjectOptions(notes.map((x) => x.subject));
+  $('note-subject-chips').innerHTML = subjectChipsHtml(noteSubjectOpts, currentNote.subject, 'pickNoteSubject');
+}
+
+function pickNoteSubject(i) {
+  if (!currentNote || noteSubjectOpts[i] === undefined) return;
+  currentNote.subject = noteSubjectOpts[i];
+  renderNoteSubjectChips();
+  noteChanged();
+}
+
+function setNoteMode(m) {
+  const view = m === 'view';
+  $('note-body').classList.toggle('hidden', view);
+  $('note-preview').classList.toggle('hidden', !view);
+  $('note-toolbar').classList.toggle('invisible', view);
+  document.querySelectorAll('[data-note-mode]').forEach((b) => b.classList.toggle('active', b.dataset.noteMode === m));
+  if (view) $('note-preview').innerHTML = renderMarkdown($('note-body').value);
+  else setTimeout(() => $('note-body').focus(), 50);
+}
+
+function noteChanged() {
+  $('note-status').textContent = 'กำลังบันทึก...';
+  clearTimeout(noteSaveTimer);
+  noteSaveTimer = setTimeout(saveNoteNow, 600);
+}
+
+function saveNoteNow() {
+  clearTimeout(noteSaveTimer);
+  if (!currentNote) return;
+  const title = $('note-title').value.slice(0, 120);
+  const body = $('note-body').value.slice(0, 20000);
+  if (currentNote.isNew && !title.trim() && !body.trim()) return;
+  const saved = { id: currentNote.id, subject: currentNote.subject, title, body, updatedAt: new Date().toISOString() };
+  const exists = notes.some((x) => x.id === saved.id);
+  notes = exists ? notes.map((x) => (x.id === saved.id ? saved : x)) : [...notes, saved];
+  currentNote = { ...saved };
+  setStorage(KEYS.notes, notes);
+  $('note-status').textContent = 'บันทึกแล้ว ✓';
+}
+
+function closeNoteEditor() {
+  saveNoteNow();
+  currentNote = null;
+  closeModal('note-modal');
+  renderNotesList();
+  if (currentSheetId) renderSubjectSheet();
+}
+
+function deleteCurrentNote() {
+  if (!currentNote) return;
+  const exists = notes.some((x) => x.id === currentNote.id);
+  if (exists && !confirm('ลบโน้ตนี้ใช่ไหม?')) return;
+  notes = notes.filter((x) => x.id !== currentNote.id);
+  setStorage(KEYS.notes, notes);
+  currentNote = null;
+  closeModal('note-modal');
+  renderNotesList();
+}
+
+// ปุ่มช่วยเขียน Markdown
+function mdInsert(before, after) {
+  const ta = $('note-body');
+  const { selectionStart: a, selectionEnd: b, value } = ta;
+  const sel = value.slice(a, b) || 'ข้อความ';
+  ta.value = value.slice(0, a) + before + sel + after + value.slice(b);
+  ta.focus();
+  ta.setSelectionRange(a + before.length, a + before.length + sel.length);
+  noteChanged();
+}
+
+function mdLine(prefix) {
+  const ta = $('note-body');
+  const { selectionStart: a, value } = ta;
+  const lineStart = value.lastIndexOf('\n', a - 1) + 1;
+  ta.value = value.slice(0, lineStart) + prefix + value.slice(lineStart);
+  ta.focus();
+  ta.setSelectionRange(a + prefix.length, a + prefix.length);
+  noteChanged();
+}
+
+// จากหน้ารายละเอียดวิชา
+function openSubjectNotes() {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  saveSubjectInfoNow();
+  closeModal('subject-modal');
+  notesFilter = sched.name;
+  switchTab('pomodoro');
+  setStudyView('notes');
+}
+
+function openSubjectDeck() {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  saveSubjectInfoNow();
+  closeModal('subject-modal');
+  openDeck(sched.name);
+}
+
+// =====================================================================
 // 0. TODAY (หน้า "วันนี้")
 // =====================================================================
 function renderToday() {
@@ -2212,6 +2782,7 @@ function renderToday() {
       <div><div class="text-2xl font-bold heading">${streak} วัน${streak >= 3 ? ' <span class="flame">🔥</span>' : ''}</div><div class="text-xs muted">อ่านติดต่อกัน</div></div>
     </div>`;
   runCountUps($('today-study'));
+  renderTodayCards();
   renderWeekCard();
   $('today-focus-btn').textContent = isRunning ? 'ดูตัวจับเวลา' : 'เริ่มโฟกัส 25 นาที'.replace('25', String(pomo.focus));
 }
@@ -2313,7 +2884,7 @@ function useHistoryInSimulator() {
 // Backup: export / import / clear
 // =====================================================================
 function collectData() {
-  return { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings, subjectColors, attendance, attendSettings, subjectInfo, scores };
+  return { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings, subjectColors, attendance, attendSettings, subjectInfo, scores, notes, cards, flashLog };
 }
 
 // แทนที่ข้อมูลทั้งหมดด้วยข้อมูลชุดใหม่ (จากไฟล์สำรองหรือจากคลาวด์) แล้ววาดหน้าจอใหม่
@@ -2334,6 +2905,9 @@ function applyData(d, { fromSync = false } = {}) {
   attendSettings = sanitizeAttendSettings(d.attendSettings);
   subjectInfo = sanitizeSubjectInfo(d.subjectInfo);
   scores = sanitizeScores(d.scores);
+  notes = sanitizeNotes(d.notes);
+  cards = sanitizeCards(d.cards);
+  flashLog = sanitizeFlashLog(d.flashLog);
   suppressChangeHook = fromSync;
   try {
     saveAllData();
@@ -2371,6 +2945,9 @@ function saveAllData() {
   setStorage(KEYS.attendSettings, attendSettings);
   setStorage(KEYS.subjectInfo, subjectInfo);
   setStorage(KEYS.scores, scores);
+  setStorage(KEYS.notes, notes);
+  setStorage(KEYS.cards, cards);
+  setStorage(KEYS.flashLog, flashLog);
 }
 
 async function importData(input) {
@@ -2410,6 +2987,9 @@ function clearAllData() {
   attendSettings = sanitizeAttendSettings({});
   subjectInfo = {};
   scores = {};
+  notes = [];
+  cards = [];
+  flashLog = {};
   saveAllData();
   renderAll();
   closeModal('settings-modal');
@@ -2503,6 +3083,8 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 // Init
 // =====================================================================
 function renderAll() {
+  renderFlashcards();
+  renderNotesList();
   renderSchedule();
   renderExams();
   renderTasks();
@@ -2573,6 +3155,7 @@ function init() {
   safe('semesters', renderSemesters);
   safe('reminders', fillReminderSettings);
   safe('stats', renderStudyStats);
+  safe('study', () => setStudyView(getStorage(KEYS.studyView, 'timer'), { quiet: true }));
   safe('pomodoro', () => { fillPomoSettings(); setMode(mode); });
   safe('gpa', () => { renderGpaRows(); fillGpaSim(); calculateGPA(); });
   safe('simulator', () => { if (Object.values(gpaSim).every((v) => v !== '')) simulateTarget(); });
