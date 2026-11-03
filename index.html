@@ -496,6 +496,37 @@
       </div>
 
       <div class="space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <h4 class="text-sm font-semibold heading flex items-center gap-2"><i data-lucide="clipboard-list" class="w-4 h-4 text-indigo-500"></i> คะแนน</h4>
+          <label class="text-[11px] muted flex items-center gap-1">เต็ม <input id="score-total" type="number" min="1" max="1000" inputmode="decimal" class="input !w-16 !py-0.5 !px-1.5 text-center" onchange="saveScoreTotal()" /></label>
+        </div>
+        <div id="sheet-score-summary"></div>
+        <div id="sheet-score-list" class="divide-y divide-slate-100 dark:divide-slate-800"></div>
+        <div class="space-y-2 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" onclick="quickScoreName('ควิซ')" class="px-2.5 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800">ควิซ</button>
+            <button type="button" onclick="quickScoreName('งาน')" class="px-2.5 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800">งาน</button>
+            <button type="button" onclick="quickScoreName('แล็บ')" class="px-2.5 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800">แล็บ</button>
+            <button type="button" onclick="quickScoreName('สอบกลางภาค')" class="px-2.5 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800">สอบกลางภาค</button>
+            <button type="button" onclick="quickScoreName('สอบปลายภาค')" class="px-2.5 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800">สอบปลายภาค</button>
+          </div>
+          <input id="score-name" type="text" maxlength="60" class="input" placeholder="ชื่อ เช่น ควิซ 1, สอบกลางภาค" />
+          <div class="grid grid-cols-3 gap-2 text-xs">
+            <label class="space-y-1"><span class="muted block">ได้</span><input id="score-got" type="number" step="0.5" min="0" inputmode="decimal" class="input !py-1" /></label>
+            <label class="space-y-1"><span class="muted block">เต็ม</span><input id="score-max" type="number" step="0.5" min="0" inputmode="decimal" class="input !py-1" /></label>
+            <label class="space-y-1"><span class="muted block">คิดเป็น (คะแนน)</span><input id="score-worth" type="number" step="0.5" min="0" inputmode="decimal" class="input !py-1" placeholder="= เต็ม" /></label>
+          </div>
+          <p class="text-[11px] muted">เช่น ควิซได้ 8 เต็ม 10 แต่ในวิชาคิดเป็น 5 คะแนน · ถ้าไม่กรอก "คิดเป็น" จะใช้คะแนนเต็ม</p>
+          <div class="flex gap-2">
+            <button id="score-save-btn" onclick="saveScore()" class="btn-primary flex-1 text-sm !py-2">+ เพิ่มคะแนน</button>
+            <button id="score-cancel-btn" onclick="deleteEditingScore()" class="btn-secondary text-sm !py-2 hidden">ลบ</button>
+          </div>
+        </div>
+        <button id="score-use-gpa" onclick="useProjectedGrade()" class="hidden w-full text-xs text-indigo-600 dark:text-indigo-300 py-1">ใช้เกรดที่คาดนี้ในหน้าคำนวณเกรด →</button>
+        <p class="text-[11px] muted">เกณฑ์: A ≥ 80 · B+ ≥ 75 · B ≥ 70 · C+ ≥ 65 · C ≥ 60 · D+ ≥ 55 · D ≥ 50 (คิดจากคะแนนเต็มของวิชา)</p>
+      </div>
+
+      <div class="space-y-2">
         <h4 class="text-sm font-semibold heading flex items-center gap-2"><i data-lucide="notebook-text" class="w-4 h-4 text-indigo-500"></i> ข้อมูลวิชา</h4>
         <div>
           <label class="label" for="sheet-teacher">อาจารย์ผู้สอน</label>

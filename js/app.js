@@ -23,6 +23,7 @@ const KEYS = {
   attendance: 'attendance_data',
   attendSettings: 'attendance_settings',
   subjectInfo: 'subject_info',
+  scores: 'scores_data',
 };
 
 // อ่านข้อมูลอย่างปลอดภัย: ถ้าข้อมูลเสียหรือเบราว์เซอร์บล็อก storage จะใช้ค่าเริ่มต้นแทน แอปไม่พัง
@@ -45,7 +46,7 @@ function getStorage(key, fallback) {
 const SYNCED_KEYS = new Set([
   'schedules_data', 'tasks_data', 'study_stats', 'study_log', 'gpa_rows', 'gpa_sim',
   'pomo_settings', 'exams_data', 'semesters_data', 'reminder_settings', 'calendar_settings',
-  'subject_colors', 'attendance_data', 'attendance_settings', 'subject_info',
+  'subject_colors', 'attendance_data', 'attendance_settings', 'subject_info', 'scores_data',
 ]);
 // sync.js จะมาแทนที่ฟังก์ชันนี้ เพื่อรู้ว่าข้อมูลเปลี่ยนแล้วต้องอัปโหลด
 let onLocalDataChange = () => {};
@@ -376,6 +377,7 @@ let subjectColors = sanitizeSubjectColors(getStorage(KEYS.subjectColors, {}));
 let attendance = sanitizeAttendance(getStorage(KEYS.attendance, {}));
 let attendSettings = sanitizeAttendSettings(getStorage(KEYS.attendSettings, {}));
 let subjectInfo = sanitizeSubjectInfo(getStorage(KEYS.subjectInfo, {}));
+let scores = sanitizeScores(getStorage(KEYS.scores, {}));
 
 // ให้สีวิชาใหม่ตามลำดับชุดสี (เลือกสีที่ใช้น้อยที่สุด เริ่มจากสีแรก)
 function colorFor(name, map = subjectColors, assign = true) {
@@ -1705,6 +1707,7 @@ function openSubjectSheet(id) {
   $('attend-start').value = attendSettings.semesterStart;
   $('attend-weeks').value = attendSettings.weeks;
   $('attend-required').value = attendSettings.required;
+  resetScoreForm();
   renderSubjectSheet();
   openModal('subject-modal');
 }
@@ -1712,6 +1715,7 @@ function openSubjectSheet(id) {
 function renderSubjectSheet() {
   const sched = schedules.find((x) => x.id === currentSheetId);
   if (!sched) return;
+  renderScoreSection(sched);
   $('sheet-head').innerHTML = `
     <div ${subjectStyle(sched.name)} class="subj subj-bar pl-3">
       <h3 class="text-lg font-bold heading leading-snug">${escapeHtml(sched.name)}</h3>
@@ -1794,6 +1798,179 @@ function saveAttendSettings() {
   setStorage(KEYS.attendSettings, attendSettings);
   renderSubjectSheet();
   renderSchedule();
+}
+
+// =====================================================================
+// คะแนนรายวิชา + ประมาณเกรด
+// =====================================================================
+// { [subjectKey]: { total: 100, items: [{ id, name, got, max, worth }] } }
+//   got/max = คะแนนที่ได้จากคะแนนเต็มของชิ้นนั้น, worth = ชิ้นนี้คิดเป็นกี่คะแนนของวิชา
+const GRADE_CUTOFFS = [['A', 80], ['B+', 75], ['B', 70], ['C+', 65], ['C', 60], ['D+', 55], ['D', 50]];
+
+function sanitizeScores(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  Object.entries(obj).forEach(([k, v]) => {
+    if (!k || k.length > 100 || !v || typeof v !== 'object') return;
+    const items = (Array.isArray(v.items) ? v.items : [])
+      .filter((it) => it && Number(it.max) > 0 && Number(it.worth) >= 0)
+      .slice(0, 60)
+      .map((it) => ({
+        id: toId(it.id),
+        name: String(it.name || 'ไม่มีชื่อ').slice(0, 60),
+        got: clamp(Number(it.got) || 0, 0, 1000),
+        max: clamp(Number(it.max), 0.01, 1000),
+        worth: clamp(Number(it.worth), 0, 100),
+      }));
+    out[subjectKey(k)] = { total: clamp(Number(v.total) || 100, 1, 1000), items };
+  });
+  return out;
+}
+
+function gradeFor(percent) {
+  const hit = GRADE_CUTOFFS.find(([, c]) => percent >= c);
+  return hit ? hit[0] : 'F';
+}
+
+function scoreSummary(name) {
+  const data = scores[subjectKey(name)] || { total: 100, items: [] };
+  const total = data.total;
+  const counted = data.items.reduce((a, it) => a + it.worth, 0); // เก็บไปแล้วกี่คะแนน
+  const earned = data.items.reduce((a, it) => a + (Math.min(it.got, it.max) / it.max) * it.worth, 0);
+  const remaining = Math.max(0, total - counted);
+  const rate = counted > 0 ? earned / counted : null;
+  const projected = rate === null ? null : ((earned + remaining * rate) / total) * 100;
+  const best = ((earned + remaining) / total) * 100;
+  const needs = GRADE_CUTOFFS.map(([g, c]) => {
+    const need = (c / 100) * total - earned;
+    if (need <= 0) return { grade: g, state: 'safe' };
+    if (remaining <= 0 || need > remaining) return { grade: g, state: 'impossible' };
+    return { grade: g, state: 'need', pct: Math.ceil((need / remaining) * 100) };
+  });
+  return { total, counted, earned, remaining, rate, projected, best, needs, items: data.items };
+}
+
+const fmt1 = (n) => (Math.round(n * 10) / 10).toLocaleString('th-TH', { maximumFractionDigits: 1 });
+
+let editingScoreId = null;
+
+function resetScoreForm() {
+  editingScoreId = null;
+  ['score-name', 'score-got', 'score-max', 'score-worth'].forEach((id) => { $(id).value = ''; });
+  $('score-save-btn').textContent = '+ เพิ่มคะแนน';
+  $('score-cancel-btn').classList.add('hidden');
+}
+
+function renderScoreSection(sched) {
+  const sm = scoreSummary(sched.name);
+  $('score-total').value = sm.total;
+  if (!sm.items.length) {
+    $('sheet-score-summary').innerHTML = '<p class="text-xs muted">ยังไม่มีคะแนน จดคะแนนงาน ควิซ หรือสอบที่ได้คืนมา แอปจะประมาณเกรดให้</p>';
+  } else {
+    const projGrade = sm.projected === null ? '-' : gradeFor(sm.projected);
+    const needChips = sm.needs.map((n) => {
+      if (n.state === 'safe') return `<span class="px-2 py-1 rounded-lg text-[11px] ${DUE_BADGE.done}">${n.grade} ✓ ได้แน่นอน</span>`;
+      if (n.state === 'impossible') return `<span class="px-2 py-1 rounded-lg text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 line-through">${n.grade}</span>`;
+      const tone = n.pct > 90 ? DUE_BADGE.overdue : n.pct > 75 ? DUE_BADGE.soon : DUE_BADGE.normal;
+      return `<span class="px-2 py-1 rounded-lg text-[11px] font-medium ${tone}">${n.grade} ต้องได้ ${n.pct}%</span>`;
+    }).join('');
+    $('sheet-score-summary').innerHTML = `
+      <div class="grid grid-cols-3 gap-2">
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2 text-center"><div class="text-lg font-bold heading">${fmt1(sm.earned)}<span class="text-xs muted">/${fmt1(sm.counted)}</span></div><div class="text-[10px] muted">ได้แล้ว (จากที่เก็บไป)</div></div>
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-2 text-center"><div class="text-lg font-bold heading">${fmt1(sm.remaining)}</div><div class="text-[10px] muted">คะแนนที่ยังเหลือ</div></div>
+        <div class="bg-indigo-50 dark:bg-indigo-500/15 rounded-xl p-2 text-center"><div class="text-lg font-black text-indigo-600 dark:text-indigo-300">${projGrade}</div><div class="text-[10px] muted">เกรดที่คาด</div></div>
+      </div>
+      <p class="text-xs muted mt-2">ถ้าทำได้ ${fmt1(sm.rate * 100)}% แบบนี้ต่อไป คาดว่าได้ ${fmt1(sm.projected)} จาก 100 · เกรดสูงสุดที่ยังเป็นไปได้: <b class="heading">${gradeFor(sm.best)}</b></p>
+      ${sm.remaining > 0 ? `<div class="text-xs muted mt-2 mb-1">ส่วนที่เหลือ (${fmt1(sm.remaining)} คะแนน) ต้องทำได้:</div><div class="flex flex-wrap gap-1.5">${needChips}</div>` : ''}`;
+  }
+  $('sheet-score-list').innerHTML = sm.items.map((it) => `
+    <button onclick="editScore(${it.id})" class="w-full flex items-center justify-between gap-2 py-2 text-left">
+      <span class="text-sm heading truncate">${escapeHtml(it.name)}</span>
+      <span class="text-xs muted whitespace-nowrap">${fmt1(it.got)}/${fmt1(it.max)} → <b class="heading">${fmt1((Math.min(it.got, it.max) / it.max) * it.worth)}</b>/${fmt1(it.worth)}</span>
+    </button>`).join('');
+  $('score-use-gpa').classList.toggle('hidden', sm.projected === null);
+}
+
+function quickScoreName(label) {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  const existing = sched ? (scores[subjectKey(sched.name)] || { items: [] }).items.filter((it) => it.name.startsWith(label)).length : 0;
+  $('score-name').value = ['สอบกลางภาค', 'สอบปลายภาค'].includes(label) ? label : `${label} ${existing + 1}`;
+  $('score-got').focus();
+}
+
+function saveScore() {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  const name = $('score-name').value.trim() || 'คะแนน';
+  const got = parseFloat($('score-got').value);
+  const max = parseFloat($('score-max').value);
+  let worth = parseFloat($('score-worth').value);
+  if (!Number.isFinite(got) || !Number.isFinite(max) || max <= 0) return toast('กรอกคะแนนที่ได้ และคะแนนเต็ม', 'error');
+  if (!Number.isFinite(worth)) worth = max; // ไม่กรอก = คิดเป็นคะแนนตามคะแนนเต็ม
+  if (got > max) return toast('คะแนนที่ได้มากกว่าคะแนนเต็ม', 'error');
+  const k = subjectKey(sched.name);
+  const cur = scores[k] || { total: 100, items: [] };
+  const otherWorth = cur.items.filter((it) => it.id !== editingScoreId).reduce((a, it) => a + it.worth, 0);
+  if (otherWorth + worth > cur.total + 0.001) return toast(`รวมแล้วเกินคะแนนเต็มของวิชา (${fmt1(cur.total)}) ตรวจช่อง "คิดเป็น" อีกที`, 'error', 5000);
+  const item = { id: editingScoreId || uid(), name: name.slice(0, 60), got, max, worth };
+  const items = editingScoreId ? cur.items.map((it) => (it.id === editingScoreId ? item : it)) : [...cur.items, item];
+  scores = { ...scores, [k]: { ...cur, items } };
+  setStorage(KEYS.scores, scores);
+  resetScoreForm();
+  renderSubjectSheet();
+}
+
+function editScore(id) {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  const it = sched && (scores[subjectKey(sched.name)] || { items: [] }).items.find((x) => x.id === id);
+  if (!it) return;
+  editingScoreId = id;
+  $('score-name').value = it.name;
+  $('score-got').value = it.got;
+  $('score-max').value = it.max;
+  $('score-worth').value = it.worth;
+  $('score-save-btn').textContent = 'บันทึกการแก้ไข';
+  $('score-cancel-btn').classList.remove('hidden');
+}
+
+function deleteEditingScore() {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched || !editingScoreId) return;
+  const k = subjectKey(sched.name);
+  const cur = scores[k];
+  if (!cur || !confirm('ลบคะแนนรายการนี้ใช่ไหม?')) return;
+  scores = { ...scores, [k]: { ...cur, items: cur.items.filter((it) => it.id !== editingScoreId) } };
+  setStorage(KEYS.scores, scores);
+  resetScoreForm();
+  renderSubjectSheet();
+}
+
+function saveScoreTotal() {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  const k = subjectKey(sched.name);
+  const cur = scores[k] || { total: 100, items: [] };
+  const total = clamp(parseFloat($('score-total').value) || 100, 1, 1000);
+  scores = { ...scores, [k]: { ...cur, total } };
+  setStorage(KEYS.scores, scores);
+  renderSubjectSheet();
+}
+
+// ใส่เกรดที่คาดลงในตารางคำนวณ GPA (หน้าเกรด)
+function useProjectedGrade() {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  const sm = scoreSummary(sched.name);
+  if (sm.projected === null) return;
+  const grade = gradeFor(sm.projected);
+  const gp = grade === 'F' ? 'F' : grade;
+  const k = subjectKey(sched.name);
+  const row = gpaRows.find((r) => subjectKey(r.name) === k);
+  if (row) row.grade = gp;
+  else gpaRows.push({ name: sched.name, credits: 3, grade: gp });
+  setStorage(KEYS.gpaRows, gpaRows);
+  renderGpaRows();
+  toast(`ใส่เกรด ${gp} ของวิชานี้ในหน้าคำนวณเกรดแล้ว`, 'success');
 }
 
 function editCurrentSchedule() {
@@ -1997,7 +2174,7 @@ function useHistoryInSimulator() {
 // Backup: export / import / clear
 // =====================================================================
 function collectData() {
-  return { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings, subjectColors, attendance, attendSettings, subjectInfo };
+  return { schedules, tasks, studyStats, studyLog, gpaRows, gpaSim, pomo, exams, semesters, reminders, calSettings, subjectColors, attendance, attendSettings, subjectInfo, scores };
 }
 
 // แทนที่ข้อมูลทั้งหมดด้วยข้อมูลชุดใหม่ (จากไฟล์สำรองหรือจากคลาวด์) แล้ววาดหน้าจอใหม่
@@ -2017,6 +2194,7 @@ function applyData(d, { fromSync = false } = {}) {
   attendance = sanitizeAttendance(d.attendance);
   attendSettings = sanitizeAttendSettings(d.attendSettings);
   subjectInfo = sanitizeSubjectInfo(d.subjectInfo);
+  scores = sanitizeScores(d.scores);
   suppressChangeHook = fromSync;
   try {
     saveAllData();
@@ -2053,6 +2231,7 @@ function saveAllData() {
   setStorage(KEYS.attendance, attendance);
   setStorage(KEYS.attendSettings, attendSettings);
   setStorage(KEYS.subjectInfo, subjectInfo);
+  setStorage(KEYS.scores, scores);
 }
 
 async function importData(input) {
@@ -2091,6 +2270,7 @@ function clearAllData() {
   attendance = {};
   attendSettings = sanitizeAttendSettings({});
   subjectInfo = {};
+  scores = {};
   saveAllData();
   renderAll();
   closeModal('settings-modal');
