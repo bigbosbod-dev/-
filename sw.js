@@ -1,6 +1,6 @@
 // Service worker ของ StudyFlow: ทำให้เปิดแอปได้แม้ไม่มีอินเทอร์เน็ต
 // เมื่อแก้ไฟล์ของแอป ให้เปลี่ยนเลขเวอร์ชันนี้ เพื่อให้แคชเก่าถูกล้าง
-const CACHE = 'studyflow-v7';
+const CACHE = 'studyflow-v8';
 
 const APP_SHELL = [
   './',
@@ -39,7 +39,8 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+    // ลบเฉพาะแคชเก่าของ StudyFlow (แอปอื่นในเว็บเดียวกัน เช่น budget/ มีแคชของตัวเอง)
+    await Promise.all(keys.filter((k) => k.startsWith('studyflow-') && k !== CACHE).map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
 });
