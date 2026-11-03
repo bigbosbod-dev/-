@@ -253,6 +253,12 @@ document.addEventListener('pointerdown', (e) => {
 const DAYS = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
 const STATUSES = ['todo', 'progress', 'done'];
 const GRADE_POINTS = { 'A': 4.0, 'B+': 3.5, 'B': 3.0, 'C+': 2.5, 'C': 2.0, 'D+': 1.5, 'D': 1.0, 'F': 0.0 };
+// เกรดที่ไม่นำมาคิด GPA (ยังนับเป็นหน่วยกิตที่ลงเรียน)
+const NON_GPA_GRADES = {
+  PD: 'ผ่านดีเยี่ยม', P: 'ผ่าน', S: 'พอใจ/ผ่าน', U: 'ไม่ผ่าน', W: 'ถอน', I: 'ไม่สมบูรณ์', AU: 'ร่วมฟัง',
+};
+const isGpaGrade = (g) => g in GRADE_POINTS;
+const validGrade = (g) => g in GRADE_POINTS || g in NON_GPA_GRADES;
 const TIME_RE = /^\d{2}:\d{2}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const POMO_DEFAULT = { focus: 25, short: 5, long: 15, longEvery: 4 };
@@ -319,7 +325,7 @@ function sanitizeGpaRows(list) {
     .map((r) => ({
       name: String(r.name || '').slice(0, 100),
       credits: clamp(Number(r.credits) || 0, 0, 12),
-      grade: r.grade in GRADE_POINTS ? r.grade : 'A',
+      grade: validGrade(r.grade) ? r.grade : 'A',
     }));
 }
 
@@ -1826,7 +1832,8 @@ function renderGpaRows() {
         <td class="py-2 pr-2"><input type="number" value="${r.credits}" min="0" max="12" inputmode="numeric" oninput="updateGpaRow(${i}, 'credits', this.value)" class="input !p-1.5 !w-16" /></td>
         <td class="py-2 pr-2">
           <select onchange="updateGpaRow(${i}, 'grade', this.value)" class="input !p-1.5 !w-24">
-            ${Object.keys(GRADE_POINTS).map((g) => `<option value="${g}" ${g === r.grade ? 'selected' : ''}>${g} (${GRADE_POINTS[g].toFixed(1)})</option>`).join('')}
+            <optgroup label="คิดเกรด">${Object.keys(GRADE_POINTS).map((g) => `<option value="${g}" ${g === r.grade ? 'selected' : ''}>${g} (${GRADE_POINTS[g].toFixed(1)})</option>`).join('')}</optgroup>
+            <optgroup label="ไม่คิดเกรด (PD ดีเยี่ยม · P/S ผ่าน · U ไม่ผ่าน · W ถอน · I ไม่สมบูรณ์ · AU ร่วมฟัง)">${Object.entries(NON_GPA_GRADES).map(([g, label]) => `<option value="${g}" ${g === r.grade ? 'selected' : ''} title="${label}">${g}</option>`).join('')}</optgroup>
           </select>
         </td>
         <td class="py-2 text-right"><button onclick="removeGpaRow(${i})" aria-label="ลบวิชา" class="text-slate-400 hover:text-rose-500 p-1">✕</button></td>
@@ -1852,22 +1859,36 @@ function removeGpaRow(i) {
 function updateGpaRow(i, field, value) {
   if (!gpaRows[i]) return;
   if (field === 'credits') value = clamp(Number(value) || 0, 0, 12);
-  if (field === 'grade' && !(value in GRADE_POINTS)) return;
+  if (field === 'grade' && !validGrade(value)) return;
   gpaRows[i][field] = value;
   setStorage(KEYS.gpaRows, gpaRows);
   calculateGPA();
 }
 
-function calculateGPA() {
-  let totalPoints = 0;
-  let totalCredits = 0;
-  gpaRows.forEach((r) => {
-    totalCredits += r.credits;
-    totalPoints += r.credits * GRADE_POINTS[r.grade];
+// รวมเฉพาะวิชาที่คิดเกรด (PD, S, W ฯลฯ ไม่นำมาคิด GPA)
+function gpaTotals(rows) {
+  let points = 0;
+  let credits = 0;
+  let all = 0;
+  rows.forEach((r) => {
+    all += r.credits;
+    if (!isGpaGrade(r.grade)) return;
+    credits += r.credits;
+    points += r.credits * GRADE_POINTS[r.grade];
   });
-  const gpa = totalCredits > 0 ? totalPoints / totalCredits : 0;
-  countUp($('gpa-result'), 'gpa', gpa, 'dec2');
-  $('gpa-total-credits').textContent = `รวมทั้งหมด ${totalCredits} หน่วยกิต`;
+  return { points, credits, all, gpa: credits > 0 ? points / credits : 0 };
+}
+
+function calculateGPA() {
+  const t = gpaTotals(gpaRows);
+  const totalPoints = t.points;
+  const totalCredits = t.credits;
+  countUp($('gpa-result'), 'gpa', t.gpa, 'dec2');
+  $('gpa-total-credits').textContent = t.all === t.credits
+    ? `รวมทั้งหมด ${t.all} หน่วยกิต`
+    : `รวม ${t.all} หน่วยกิต · คิดเกรด ${t.credits} หน่วยกิต`;
+  // ทำให้แถวที่ไม่คิดเกรดดูจางลง
+  document.querySelectorAll('#gpa-rows tr').forEach((tr, i) => tr.classList.toggle('opacity-60', !!gpaRows[i] && !isGpaGrade(gpaRows[i].grade)));
 
   // ถ้ากรอก GPAX เดิมไว้ใน Simulator ให้ประมาณ GPAX ใหม่ให้ด้วย
   const curGpax = parseFloat(gpaSim.gpax);
@@ -3481,10 +3502,10 @@ function addSemester() {
 }
 
 function addSemesterFromCalculator() {
-  const credits = gpaRows.reduce((a, r) => a + r.credits, 0);
-  if (!credits) return toast('ยังไม่มีวิชาในตารางคำนวณด้านบน', 'error');
-  const gpa = gpaRows.reduce((a, r) => a + r.credits * GRADE_POINTS[r.grade], 0) / credits;
-  pushSemester($('sem-name').value.trim(), Math.round(gpa * 100) / 100, credits);
+  const t = gpaTotals(gpaRows);
+  if (!t.all) return toast('ยังไม่มีวิชาในตารางคำนวณด้านบน', 'error');
+  if (!t.credits) return toast('ทุกวิชาเป็นเกรดที่ไม่คิด GPA (เช่น S, PD) จึงไม่มี GPA ให้บันทึก', 'error', 5000);
+  pushSemester($('sem-name').value.trim(), Math.round(t.gpa * 100) / 100, t.credits);
 }
 
 function deleteSemester(id) {
