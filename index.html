@@ -487,7 +487,7 @@
 
   <!-- ===== MODAL: TASK ===== -->
   <div id="task-modal" class="modal fixed inset-0 bg-black/50 hidden items-end sm:items-center justify-center sm:p-4 z-50" onclick="if (event.target === this) closeModal('task-modal')">
-    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl safe-bottom-pad">
+    <div class="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto safe-bottom-pad">
       <h3 id="task-modal-title" class="text-lg font-bold heading">เพิ่มการบ้าน / โครงงาน</h3>
       <div class="space-y-3 text-sm">
         <div>
@@ -497,6 +497,16 @@
         <div>
           <label class="label" for="task-notes">รายละเอียด (ไม่บังคับ)</label>
           <textarea id="task-notes" rows="3" maxlength="2000" class="input" placeholder="เช่น ส่งเป็น PDF ใน Classroom, ขั้นตอนที่ต้องทำ"></textarea>
+        </div>
+        <div>
+          <label class="label" for="subtask-input">งานย่อย (ไม่บังคับ)</label>
+          <div id="subtask-progress" class="mb-2"></div>
+          <ul id="subtask-list" class="space-y-1.5"></ul>
+          <div class="flex gap-2 mt-2">
+            <input type="text" id="subtask-input" maxlength="200" class="input" placeholder="เช่น ออกแบบฐานข้อมูล แล้วกด Enter"
+              onkeydown="if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); addSubtask(); }" />
+            <button type="button" onclick="addSubtask()" class="btn-ghost shrink-0">เพิ่ม</button>
+          </div>
         </div>
         <div>
           <label class="label" for="task-subject">วิชา</label>

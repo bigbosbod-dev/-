@@ -283,6 +283,22 @@ function sanitizeTasks(list) {
       status: STATUSES.includes(t.status) ? t.status : 'todo',
       doneAt: t.status === 'done' && DATE_RE.test(t.doneAt) ? t.doneAt : '',
       notes: String(t.notes || '').slice(0, 2000),
+      subtasks: sanitizeSubtasks(t.subtasks),
+    }));
+}
+
+const SUBTASK_MAX = 50;
+
+function sanitizeSubtasks(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((s) => s && typeof s === 'object' && String(s.text || '').trim())
+    .slice(0, SUBTASK_MAX)
+    .map((s) => ({
+      id: toId(s.id),
+      text: String(s.text).trim().slice(0, 200),
+      done: s.done === true,
+      due: DATE_RE.test(s.due) ? s.due : '',
     }));
 }
 
@@ -1142,6 +1158,7 @@ function renderTasks() {
         </div>
         <div class="text-sm font-medium heading ${task.status === 'done' ? 'line-through' : ''}">${escapeHtml(task.title)}</div>
         ${task.notes ? `<div class="text-xs muted whitespace-pre-line line-clamp-2">${escapeHtml(task.notes)}</div>` : ''}
+        ${subtaskCardHtml(task)}
         <div class="flex items-center justify-between gap-2 pt-1 flex-wrap">
           <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${DUE_BADGE[info.level]}">${escapeHtml(info.text + dateText)}</span>
           <div class="flex gap-1">
@@ -1179,8 +1196,118 @@ function openTaskModal(id = null) {
   $('task-subject').value = task ? task.subject : '';
   $('task-due').value = task ? task.due : '';
   $('task-notes').value = task ? task.notes : '';
+  editingSubtasks = task ? task.subtasks.map((s) => ({ ...s, showDate: !!s.due })) : [];
+  $('subtask-input').value = '';
+  renderSubtaskEditor();
   renderTaskSubjectChips();
   openModal('task-modal');
+}
+
+// ---------- งานย่อย (Checklist) ----------
+// แก้ไขในสำเนา editingSubtasks แล้วบันทึกจริงตอนกด "บันทึก" (กดยกเลิกแล้วไม่เปลี่ยน)
+let editingSubtasks = [];
+
+function subtaskProgress(list) {
+  const done = list.filter((s) => s.done).length;
+  return { done, total: list.length, pct: list.length ? Math.round((done / list.length) * 100) : 0 };
+}
+
+function progressBarHtml({ done, total, pct }) {
+  const full = total > 0 && done === total;
+  return `<div class="flex items-center gap-2">
+    <div class="flex-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+      <div class="h-full rounded-full ${full ? 'bg-emerald-500' : 'bg-indigo-500'} transition-all duration-300" style="width:${pct}%"></div>
+    </div>
+    <span class="text-[11px] font-medium tabular-nums ${full ? 'text-emerald-600 dark:text-emerald-400' : 'muted'}">☑ ${done}/${total}</span>
+  </div>`;
+}
+
+function subtaskCardHtml(task) {
+  if (!task.subtasks.length) return '';
+  const next = task.status === 'done' ? null : task.subtasks.find((s) => !s.done);
+  const nextDue = next && next.due ? ` · ${formatThaiDate(next.due)}` : '';
+  return `${progressBarHtml(subtaskProgress(task.subtasks))}
+    ${next ? `<button onclick="event.stopPropagation(); toggleSubtaskOnCard(${task.id}, ${next.id})" title="ติ๊กว่าเสร็จ"
+      class="w-full flex items-start gap-2 text-left text-xs px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
+      <span class="mt-0.5 w-3.5 h-3.5 shrink-0 rounded border border-slate-400 dark:border-slate-500"></span>
+      <span class="min-w-0"><span class="muted">ถัดไป:</span> ${escapeHtml(next.text)}<span class="muted">${escapeHtml(nextDue)}</span></span>
+    </button>` : ''}`;
+}
+
+function renderSubtaskEditor() {
+  const list = editingSubtasks;
+  $('subtask-progress').innerHTML = list.length ? progressBarHtml(subtaskProgress(list)) : '';
+  const btn = 'p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none';
+  $('subtask-list').innerHTML = list.map((s, i) => `
+    <li class="rounded-lg border border-slate-200 dark:border-slate-700 px-2 py-1.5 space-y-1.5">
+      <div class="flex items-center gap-2">
+        <input type="checkbox" ${s.done ? 'checked' : ''} onchange="toggleEditingSubtask(${i})" aria-label="ทำเสร็จแล้ว" class="w-4 h-4 shrink-0 accent-indigo-600" />
+        <input type="text" value="${escapeHtml(s.text)}" maxlength="200" oninput="editingSubtasks[${i}].text = this.value" aria-label="ชื่องานย่อย"
+          class="flex-1 min-w-0 bg-transparent text-sm outline-none ${s.done ? 'line-through text-slate-400' : 'heading'}" />
+        <button type="button" onclick="toggleSubtaskDate(${i})" aria-label="กำหนดวัน" class="${btn} ${s.due ? 'text-indigo-500' : ''}"><i data-lucide="calendar" class="w-3.5 h-3.5"></i></button>
+        <button type="button" onclick="moveEditingSubtask(${i}, -1)" aria-label="เลื่อนขึ้น" class="${btn}" ${i === 0 ? 'disabled' : ''}><i data-lucide="chevron-up" class="w-3.5 h-3.5"></i></button>
+        <button type="button" onclick="moveEditingSubtask(${i}, 1)" aria-label="เลื่อนลง" class="${btn}" ${i === list.length - 1 ? 'disabled' : ''}><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i></button>
+        <button type="button" onclick="removeEditingSubtask(${i})" aria-label="ลบงานย่อย" class="${btn} hover:!text-rose-500"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+      </div>
+      ${s.showDate ? `<div class="flex items-center gap-2 pl-6 text-xs muted">กำหนด
+        <input type="date" value="${s.due}" onchange="editingSubtasks[${i}].due = this.value" class="input !py-1 !px-2 !text-xs !w-auto" /></div>` : ''}
+    </li>`).join('');
+  refreshIcons();
+}
+
+function addSubtask() {
+  const input = $('subtask-input');
+  const text = input.value.trim().slice(0, 200);
+  if (!text) return;
+  if (editingSubtasks.length >= SUBTASK_MAX) return toast(`ใส่งานย่อยได้ไม่เกิน ${SUBTASK_MAX} รายการ`, 'error');
+  editingSubtasks.push({ id: uid(), text, done: false, due: '', showDate: false });
+  input.value = '';
+  renderSubtaskEditor();
+  input.focus();
+}
+
+function toggleEditingSubtask(i) {
+  if (!editingSubtasks[i]) return;
+  editingSubtasks[i].done = !editingSubtasks[i].done;
+  renderSubtaskEditor();
+}
+
+function toggleSubtaskDate(i) {
+  const s = editingSubtasks[i];
+  if (!s) return;
+  s.showDate = !s.showDate;
+  if (!s.showDate) s.due = '';
+  renderSubtaskEditor();
+}
+
+function moveEditingSubtask(i, dir) {
+  const j = i + dir;
+  if (!editingSubtasks[i] || !editingSubtasks[j]) return;
+  [editingSubtasks[i], editingSubtasks[j]] = [editingSubtasks[j], editingSubtasks[i]];
+  renderSubtaskEditor();
+}
+
+function removeEditingSubtask(i) {
+  editingSubtasks.splice(i, 1);
+  renderSubtaskEditor();
+}
+
+// ทำงานย่อยครบทุกอันแล้ว → ถามว่าจะย้ายงานไป "เสร็จแล้ว" เลยไหม
+function offerFinishTask(id) {
+  const task = tasks.find((t) => t.id === id);
+  if (!task || task.status === 'done' || !task.subtasks.length || task.subtasks.some((s) => !s.done)) return;
+  setTimeout(() => {
+    if (confirm(`ทำงานย่อยของ "${task.title}" ครบแล้ว 🎉\nย้ายไปช่อง "เสร็จแล้ว" เลยไหม?`)) moveTask(id, 'done');
+  }, 350);
+}
+
+function toggleSubtaskOnCard(taskId, subId) {
+  tasks = tasks.map((t) => (t.id === taskId
+    ? { ...t, subtasks: t.subtasks.map((s) => (s.id === subId ? { ...s, done: !s.done } : s)) }
+    : t));
+  setStorage(KEYS.tasks, tasks);
+  renderTasks();
+  offerFinishTask(taskId);
 }
 
 // ปุ่มเลือกวิชาจากตารางเรียน (แตะแทนการพิมพ์)
@@ -1213,13 +1340,18 @@ function saveTask() {
   const due = $('task-due').value;
   const notes = $('task-notes').value.trim().slice(0, 2000);
   if (!title) return toast('กรุณากรอกชื่องาน', 'error');
+  // ข้อความที่พิมพ์ค้างไว้ในช่องงานย่อยแต่ยังไม่ได้กดเพิ่ม ให้นับเป็นงานย่อยด้วย
+  if ($('subtask-input').value.trim()) addSubtask();
+  const subtasks = sanitizeSubtasks(editingSubtasks);
+  let savedId = editingTaskId;
 
   if (editingTaskId) {
-    tasks = tasks.map((t) => (t.id === editingTaskId ? { ...t, title, subject, due, notes } : t));
+    tasks = tasks.map((t) => (t.id === editingTaskId ? { ...t, title, subject, due, notes, subtasks } : t));
     toast('แก้ไขงานแล้ว', 'success');
   } else {
     const newId = uid();
-    tasks.push({ id: newId, title, subject, due, status: 'todo', notes });
+    savedId = newId;
+    tasks.push({ id: newId, title, subject, due, status: 'todo', notes, subtasks });
     lastMovedTaskId = newId;
     setTimeout(() => { if (lastMovedTaskId === newId) lastMovedTaskId = null; }, 600);
     toast('เพิ่มงานแล้ว', 'success');
@@ -1227,6 +1359,7 @@ function saveTask() {
   setStorage(KEYS.tasks, tasks);
   closeModal('task-modal');
   renderTasks();
+  offerFinishTask(savedId);
 }
 
 let lastMovedTaskId = null;
