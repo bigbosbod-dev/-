@@ -1,6 +1,6 @@
 // Service worker ของ StudyFlow: ทำให้เปิดแอปได้แม้ไม่มีอินเทอร์เน็ต
 // เมื่อแก้ไฟล์ของแอป ให้เปลี่ยนเลขเวอร์ชันนี้ เพื่อให้แคชเก่าถูกล้าง
-const CACHE = 'studyflow-v25';
+const CACHE = 'studyflow-v26';
 
 const APP_SHELL = [
   './',
@@ -50,6 +50,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   // คำขอไปยังเซิร์ฟเวอร์ซิงก์ (Supabase) ต้องไปถึงเซิร์ฟเวอร์จริงเสมอ ห้ามใช้แคช
   if (url.hostname.endsWith('.supabase.co')) return;
+  // ภาพแผนที่ (OpenStreetMap) มีจำนวนมาก ไม่เก็บลงแคชของแอป
+  if (url.hostname.endsWith('tile.openstreetmap.org')) return;
 
   if (url.origin === self.location.origin) {
     // ไฟล์ของแอป: ใช้เวอร์ชันล่าสุดจากเน็ตก่อน ถ้าออฟไลน์ค่อยใช้จากแคช

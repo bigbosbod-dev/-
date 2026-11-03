@@ -436,9 +436,21 @@ function sanitizeSubjectInfo(obj) {
       .filter((l) => l && /^https?:\/\//i.test(String(l.url || '')))
       .slice(0, 20)
       .map((l) => ({ label: String(l.label || '').slice(0, 60), url: String(l.url).slice(0, 500) }));
-    out[subjectKey(k)] = { teacher: String(v.teacher || '').slice(0, 100), notes: String(v.notes || '').slice(0, 5000), links };
+    const entry = { teacher: String(v.teacher || '').slice(0, 100), notes: String(v.notes || '').slice(0, 5000), links };
+    const place = sanitizePlace(v.place);
+    if (place) entry.place = place;
+    out[subjectKey(k)] = entry;
   });
   return out;
+}
+
+// ตำแหน่งห้องเรียน { lat, lng } (ทศนิยม 6 ตำแหน่ง ≈ 10 ซม.)
+function sanitizePlace(p) {
+  if (!p || typeof p !== 'object') return null;
+  const lat = Number(p.lat);
+  const lng = Number(p.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 };
 }
 
 function sanitizeCalendarSettings(obj) {
@@ -738,6 +750,8 @@ function renderNextClass() {
           <div class="font-semibold text-lg truncate">${escapeHtml(s.name)}</div>
           <div class="text-sm ${sub}">${when}${room}</div>
         </div>
+        ${placeFor(s) ? `<a href="${escapeHtml(directionsUrl(placeFor(s)))}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()"
+          class="ml-auto shrink-0 inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-medium"><i data-lucide="navigation" class="w-4 h-4"></i> นำทาง</a>` : ''}
       </div>${examLine}`;
     refreshIcons();
     return;
@@ -986,7 +1000,9 @@ function buildCalendar({ includeClasses, includeTasks, includeExams, until, alar
       lines.push('BEGIN:VEVENT', `UID:studyflow-class-${s.id}@studyflow`, `DTSTAMP:${stamp}`,
         `DTSTART:${icsDateTime(start)}`, `DTEND:${icsDateTime(end)}`, rrule,
         `SUMMARY:${icsEscape(s.name)}`);
-      if (s.room) lines.push(`LOCATION:${icsEscape(s.room)}`);
+      const place = placeFor(s);
+      if (s.room || place) lines.push(`LOCATION:${icsEscape(s.room || s.name)}`);
+      if (place) lines.push(`GEO:${place.lat};${place.lng}`);
       if (alarm > 0) lines.push(...icsAlarm(`-PT${alarm}M`, `อีก ${alarm} นาทีเข้าเรียน ${s.name}`));
       lines.push('END:VEVENT');
       count++;
@@ -1968,6 +1984,7 @@ function openSubjectSheet(id) {
   const sched = schedules.find((x) => x.id === id);
   if (!sched) return;
   currentSheetId = id;
+  pickingPlace = false;
   const info = infoFor(sched.name);
   $('sheet-teacher').value = info.teacher;
   $('sheet-notes').value = info.notes;
@@ -2017,6 +2034,7 @@ function renderSubjectSheet() {
       <div class="flex gap-1">${attendanceButtonsHtml(sched.id, d)}</div>
     </div>`).join('') : '<p class="text-xs muted py-2">ยังไม่มีคาบที่ผ่านมาให้เช็กชื่อ ถ้าเปิดเทอมมาแล้ว กดปุ่ม "ตั้งวันเปิดเทอม" ด้านล่างเพื่อย้อนเช็กสัปดาห์ก่อน ๆ</p>';
 
+  renderPlaceSection(sched);
   const info = infoFor(sched.name);
   $('sheet-links').innerHTML = info.links.length ? info.links.map((l, i) => `
     <div class="flex items-center gap-2">
@@ -2068,6 +2086,177 @@ function removeSubjectLink(i) {
   subjectInfo = { ...subjectInfo, [k]: { ...cur, links: cur.links.filter((_, j) => j !== i) } };
   setStorage(KEYS.subjectInfo, subjectInfo);
   renderSubjectSheet();
+}
+
+// =====================================================================
+// แผนที่ห้องเรียน (OpenStreetMap + Leaflet โหลดเมื่อเปิดใช้เท่านั้น)
+// =====================================================================
+const LEAFLET_VER = '1.9.4';
+const DEFAULT_CENTER = { lat: 19.9847, lng: 99.8489 }; // ม.ราชภัฏเชียงราย (ใช้ตอนยังไม่เคยตั้งตำแหน่ง)
+let leafletPromise = null;
+let placeMap = null;
+let placeMarker = null;
+let pickingPlace = false;
+
+function loadLeaflet() {
+  if (window.L) return Promise.resolve(window.L);
+  if (leafletPromise) return leafletPromise;
+  leafletPromise = new Promise((resolve, reject) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = `https://unpkg.com/leaflet@${LEAFLET_VER}/dist/leaflet.css`;
+    document.head.appendChild(css);
+    const js = document.createElement('script');
+    js.src = `https://unpkg.com/leaflet@${LEAFLET_VER}/dist/leaflet.js`;
+    js.onload = () => resolve(window.L);
+    js.onerror = () => { leafletPromise = null; reject(new Error('load failed')); };
+    document.head.appendChild(js);
+  });
+  return leafletPromise;
+}
+
+// ตำแหน่งของคาบเรียน: ใช้ของวิชานั้นก่อน ถ้าไม่มีให้ยืมจากวิชาอื่นที่เรียนห้องเดียวกัน
+function placeFor(sched) {
+  if (!sched) return null;
+  const own = infoFor(sched.name).place;
+  if (own) return own;
+  const room = String(sched.room || '').trim().toLowerCase();
+  if (!room) return null;
+  const twin = schedules.find((x) => x !== sched && String(x.room || '').trim().toLowerCase() === room && infoFor(x.name).place);
+  return twin ? infoFor(twin.name).place : null;
+}
+
+const IS_APPLE = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent);
+
+function directionsUrl(p, app = IS_APPLE ? 'apple' : 'google') {
+  return app === 'apple'
+    ? `https://maps.apple.com/?daddr=${p.lat},${p.lng}&dirflg=w`
+    : `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}&travelmode=walking`;
+}
+
+// อ่านพิกัดจากข้อความ: "19.98, 99.85" หรือลิงก์ Google Maps / Apple Maps แบบเต็ม
+function parsePlaceText(text) {
+  let t = String(text || '').trim();
+  try { t = decodeURIComponent(t); } catch (e) { /* ใช้ข้อความเดิม */ }
+  const num = '(-?\\d{1,3}\\.\\d+)';
+  const patterns = [
+    new RegExp(`!3d${num}!4d${num}`),
+    new RegExp(`@${num},${num}`),
+    new RegExp(`[?&](?:q|ll|daddr|destination|query|sll)=(?:loc:)?${num},\\s*${num}`),
+    new RegExp(`^${num}\\s*,\\s*${num}$`),
+  ];
+  for (const re of patterns) {
+    const m = re.exec(t);
+    if (m) return sanitizePlace({ lat: m[1], lng: m[2] });
+  }
+  return null;
+}
+
+function setSubjectPlace(place) {
+  const sched = schedules.find((x) => x.id === currentSheetId);
+  if (!sched) return;
+  saveSubjectInfoNow();
+  const k = subjectKey(sched.name);
+  const cur = { ...infoFor(sched.name) };
+  if (place) cur.place = place; else delete cur.place;
+  subjectInfo = { ...subjectInfo, [k]: cur };
+  setStorage(KEYS.subjectInfo, subjectInfo);
+  renderToday();
+}
+
+function renderPlaceSection(sched) {
+  const own = infoFor(sched.name).place;
+  const place = placeFor(sched);
+  const borrowed = place && !own;
+  $('sheet-place-actions').innerHTML = place ? `
+    <div class="grid grid-cols-2 gap-2">
+      <a href="${escapeHtml(directionsUrl(place, 'apple'))}" target="_blank" rel="noopener noreferrer" class="btn-secondary text-sm !py-2"><i data-lucide="navigation" class="w-4 h-4"></i> Apple Maps</a>
+      <a href="${escapeHtml(directionsUrl(place, 'google'))}" target="_blank" rel="noopener noreferrer" class="btn-secondary text-sm !py-2"><i data-lucide="navigation" class="w-4 h-4"></i> Google Maps</a>
+    </div>
+    <p class="text-[11px] muted">${borrowed ? `ใช้ตำแหน่งของห้อง ${escapeHtml(sched.room)} จากวิชาอื่น · ` : ''}เปลี่ยนได้โดยแตะ "แก้ตำแหน่ง" แล้วแตะบนแผนที่${own ? ' · <button type="button" onclick="clearSubjectPlace()" class="underline hover:text-rose-500">ลบตำแหน่ง</button>' : ''}</p>`
+    : '<p class="text-xs muted">ยังไม่ได้ตั้งตำแหน่งห้องเรียน ตั้งครั้งเดียว แล้วจะมีปุ่มนำทางในหน้า "วันนี้"</p>';
+  $('place-edit-btn').innerHTML = `<i data-lucide="${pickingPlace ? 'check' : 'map-pin'}" class="w-3.5 h-3.5"></i> ${pickingPlace ? 'เสร็จ' : place ? 'แก้ตำแหน่ง' : 'ตั้งตำแหน่ง'}`;
+  $('place-tools').classList.toggle('hidden', !pickingPlace);
+  $('place-hint').classList.toggle('hidden', !pickingPlace);
+  const showMap = !!place || pickingPlace;
+  $('place-map').classList.toggle('hidden', !showMap);
+  if (showMap) drawPlaceMap(place);
+}
+
+async function drawPlaceMap(place) {
+  let L;
+  try { L = await loadLeaflet(); } catch (e) {
+    $('place-map').innerHTML = '<p class="text-xs muted p-3">โหลดแผนที่ไม่ได้ (ต้องต่ออินเทอร์เน็ต) แต่ปุ่มนำทางยังใช้ได้</p>';
+    return;
+  }
+  const el = $('place-map');
+  if (!placeMap || placeMap.getContainer() !== el) {
+    el.innerHTML = '';
+    placeMap = L.map(el, { zoomControl: true, attributionControl: true });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
+    }).addTo(placeMap);
+    placeMap.on('click', (ev) => {
+      if (!pickingPlace) return;
+      const p = sanitizePlace({ lat: ev.latlng.lat, lng: ev.latlng.lng });
+      setSubjectPlace(p);
+      showPlaceMarker(p, false);
+      renderSubjectSheet();
+    });
+  }
+  const center = place || DEFAULT_CENTER;
+  placeMap.setView([center.lat, center.lng], place ? 18 : 16);
+  showPlaceMarker(place, false);
+  setTimeout(() => placeMap && placeMap.invalidateSize(), 50); // แผนที่อยู่ใน modal ที่เพิ่งเปิด ต้องวัดขนาดใหม่
+}
+
+function showPlaceMarker(place, pan = true) {
+  if (!placeMap || !window.L) return;
+  if (placeMarker) { placeMarker.remove(); placeMarker = null; }
+  if (!place) return;
+  placeMarker = window.L.circleMarker([place.lat, place.lng], { radius: 10, color: '#fff', weight: 3, fillColor: '#e11d48', fillOpacity: 1 }).addTo(placeMap);
+  if (pan) placeMap.setView([place.lat, place.lng], Math.max(placeMap.getZoom(), 17));
+}
+
+function togglePlaceEditing() {
+  pickingPlace = !pickingPlace;
+  $('place-input').value = '';
+  renderSubjectSheet();
+}
+
+function clearSubjectPlace() {
+  if (!confirm('ลบตำแหน่งห้องเรียนของวิชานี้ใช่ไหม?')) return;
+  setSubjectPlace(null);
+  renderSubjectSheet();
+}
+
+function useCurrentLocation() {
+  if (!navigator.geolocation) return toast('อุปกรณ์นี้หาตำแหน่งไม่ได้', 'error');
+  toast('กำลังหาตำแหน่ง…', 'info', 2000);
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const p = sanitizePlace({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    setSubjectPlace(p);
+    pickingPlace = false;
+    renderSubjectSheet();
+    toast(`บันทึกตำแหน่งแล้ว (คลาดเคลื่อนประมาณ ${Math.round(pos.coords.accuracy)} ม.)`, 'success');
+  }, (err) => {
+    toast(err.code === 1 ? 'ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง เปิดได้ที่ การตั้งค่า → ความเป็นส่วนตัว → บริการหาตำแหน่ง' : 'หาตำแหน่งไม่สำเร็จ ลองอีกครั้งตอนอยู่กลางแจ้ง', 'error', 5000);
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+}
+
+function applyPlaceText() {
+  const text = $('place-input').value;
+  if (!text.trim()) return;
+  if (/goo\.gl|maps\.app/i.test(text)) {
+    return toast('ลิงก์แบบย่ออ่านพิกัดไม่ได้ ใน Google Maps ให้กดค้างตรงตึก แล้วคัดลอกตัวเลขพิกัด (เช่น 19.98, 99.85) มาวางแทน', 'error', 7000);
+  }
+  const p = parsePlaceText(text);
+  if (!p) return toast('อ่านพิกัดไม่ได้ ลองวางตัวเลขแบบ 19.98, 99.85', 'error', 5000);
+  setSubjectPlace(p);
+  pickingPlace = false;
+  renderSubjectSheet();
+  toast('บันทึกตำแหน่งแล้ว', 'success');
 }
 
 function saveAttendSettings() {
@@ -2867,7 +3056,11 @@ function renderToday() {
             <div class="text-sm font-medium heading truncate">${escapeHtml(s.name)}</div>
             <div class="text-xs muted">${escapeHtml(s.start)} - ${escapeHtml(s.end)}${s.room ? ` · ${escapeHtml(s.room)}` : ''}</div>
           </button>
-          ${badge}
+          <div class="flex items-center gap-1.5 shrink-0">
+            ${badge}
+            ${placeFor(s) && nowMin < en ? `<a href="${escapeHtml(directionsUrl(placeFor(s)))}" target="_blank" rel="noopener noreferrer" aria-label="นำทางไป ${escapeHtml(s.name)}" title="นำทาง"
+              class="p-1.5 rounded-lg text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/15"><i data-lucide="navigation" class="w-4 h-4"></i></a>` : ''}
+          </div>
         </div>
         ${started ? `<div class="mt-2 flex items-center gap-1.5 flex-wrap">${attendanceButtonsHtml(s.id, todayStr())}${attendanceBadgeHtml(s)}</div>` : ''}
       </div>`;
