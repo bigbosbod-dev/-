@@ -269,6 +269,8 @@ async function syncNow({ manual = false } = {}) {
       pullData(row);
       toast('มีข้อมูลใหม่กว่าจากเครื่องอื่น ใช้ข้อมูลนั้นแทนแล้ว');
     }
+    // รูปห้องเรียนที่ยังไม่ได้อัปโหลด (เช่น ถ่ายไว้ตอนยังไม่ล็อกอิน หรือตอนออฟไลน์)
+    if (typeof uploadPendingPhotos === 'function') uploadPendingPhotos();
     if (manual) toast('ซิงก์เรียบร้อย', 'success', 1500);
   } catch (err) {
     console.warn('sync failed', err);

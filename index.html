@@ -611,6 +611,18 @@
       </div>
 
       <div class="space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <h4 class="text-sm font-semibold heading flex items-center gap-2"><i data-lucide="camera" class="w-4 h-4 text-indigo-500"></i> รูปตึก / ห้องเรียน</h4>
+          <label id="photo-add-btn" class="cursor-pointer inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/15">
+            <i data-lucide="image-plus" class="w-3.5 h-3.5"></i> เพิ่มรูป
+            <input type="file" accept="image/*" multiple class="hidden" onchange="addPhotos(this)" />
+          </label>
+        </div>
+        <div id="sheet-photos" class="hidden flex gap-2 overflow-x-auto pb-1"></div>
+        <p id="photo-note" class="text-[11px] muted"></p>
+      </div>
+
+      <div class="space-y-2">
         <h4 class="text-sm font-semibold heading flex items-center gap-2"><i data-lucide="link" class="w-4 h-4 text-indigo-500"></i> ลิงก์</h4>
         <div id="sheet-links" class="space-y-2"></div>
         <div class="grid grid-cols-5 gap-2">
@@ -718,6 +730,18 @@
         <button id="card-delete-btn" onclick="deleteEditingCard()" class="btn-secondary text-sm hidden">ลบ</button>
         <button id="card-save-btn" onclick="saveCard()" class="btn-primary flex-1 text-sm">บันทึก</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: PHOTO VIEWER (อยู่หลัง subject modal เพื่อให้ซ้อนอยู่ด้านบน) ===== -->
+  <div id="photo-modal" class="modal fixed inset-0 bg-black/90 hidden items-center justify-center p-4 z-50" onclick="if (event.target === this) closePhoto()">
+    <div class="w-full max-w-lg space-y-3">
+      <div class="flex justify-end gap-2">
+        <button id="photo-view-delete" onclick="deleteViewingPhoto()" class="p-2 rounded-lg text-rose-300 hover:bg-white/10" aria-label="ลบรูป"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+        <button onclick="closePhoto()" class="p-2 rounded-lg text-white hover:bg-white/10" aria-label="ปิด"><i data-lucide="x" class="w-6 h-6"></i></button>
+      </div>
+      <img id="photo-view-img" alt="รูปห้องเรียน" class="w-full max-h-[70vh] object-contain rounded-xl bg-black" />
+      <input id="photo-view-caption" type="text" maxlength="100" class="w-full px-3 py-2 rounded-lg text-sm bg-white/10 text-white border border-white/20 placeholder:text-white/50 outline-none focus:border-white/50 disabled:opacity-70" placeholder="คำบรรยาย เช่น ตึกสีส้ม ข้างโรงอาหาร ขึ้นชั้น 4 เลี้ยวขวา" onchange="savePhotoCaption()" />
     </div>
   </div>
 
