@@ -1484,7 +1484,59 @@ function updateTimerUI() {
   document.title = isRunning ? `${mins}:${secs} · ${MODE_LABEL[mode]} – StudyFlow` : 'StudyFlow – Study & Schedule Organizer';
 }
 
+// ---------- ตัวจับเวลาบนหน้าจอล็อก ----------
+// iPhone หยุดแอปเมื่อปิดจอ จึง (1) โชว์แจ้งเตือนค้างว่า "หมดเวลากี่โมง" ตอนกดเริ่ม
+// และ (2) ขอให้เซิร์ฟเวอร์ส่งแจ้งเตือนตอนหมดเวลา (ใช้ tag เดียวกัน จะได้แทนที่กัน)
+const TIMER_TAG = 'studyflow-pomodoro';
+
+async function swRegistration() {
+  try { return 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null; } catch (e) { return null; }
+}
+
+function timerEndText() {
+  const end = new Date(endAt);
+  return `${pad2(end.getHours())}:${pad2(end.getMinutes())}`;
+}
+
+async function showTimerNotification() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const reg = await swRegistration();
+  if (!reg) return;
+  const subject = $('pomodoro-subject').value.trim();
+  const body = mode === 'focus'
+    ? `${subject ? `อ่าน ${subject} · ` : ''}${Math.ceil(timeLeft / 60)} นาที สู้ ๆ!`
+    : 'พักสายตา ยืดเส้นยืดสายหน่อย';
+  try {
+    await reg.showNotification(`⏱ ${MODE_LABEL[mode]}อยู่ · หมดเวลา ${timerEndText()}`, {
+      body, tag: TIMER_TAG, silent: true, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', data: { url: './' },
+    });
+  } catch (e) { /* ignore */ }
+}
+
+async function clearTimerNotification() {
+  const reg = await swRegistration();
+  if (!reg || !reg.getNotifications) return;
+  try { (await reg.getNotifications({ tag: TIMER_TAG })).forEach((n) => n.close()); } catch (e) { /* ignore */ }
+}
+
+function scheduleTimerPush() {
+  if (typeof window.timerPush !== 'function') return;
+  const [title, body] = mode === 'focus'
+    ? ['หมดเวลาโฟกัส! 🎉', 'ได้เวลาพักแล้ว เปิดแอปเพื่อเริ่มพัก']
+    : ['หมดเวลาพัก ⏰', 'กลับมาโฟกัสกันต่อ!'];
+  window.timerPush('schedule', { fireAt: new Date(endAt).toISOString(), title, body });
+}
+
+function cancelTimerPush() {
+  if (typeof window.timerPush === 'function') window.timerPush('cancel');
+}
+
 function setMode(m) {
+  const wasRunning = isRunning;
+  if (wasRunning) {
+    clearTimerNotification();
+    cancelTimerPush();
+  }
   clearInterval(timerInterval);
   isRunning = false;
   mode = m;
@@ -1508,6 +1560,8 @@ function toggleTimer() {
   if (isRunning) {
     clearInterval(timerInterval);
     isRunning = false;
+    clearTimerNotification();
+    cancelTimerPush();
     updateTimerUI();
     return;
   }
@@ -1520,6 +1574,8 @@ function toggleTimer() {
   endAt = Date.now() + timeLeft * 1000;
   timerInterval = setInterval(tick, 1000);
   updateTimerUI();
+  showTimerNotification();
+  scheduleTimerPush();
 }
 
 function resetTimer() {
@@ -1529,6 +1585,7 @@ function resetTimer() {
 function completeSession() {
   clearInterval(timerInterval);
   isRunning = false;
+  cancelTimerPush(); // เปิดแอปอยู่ตอนหมดเวลา แอปเตือนเองแล้ว
   if (mode === 'focus') {
     focusCount++;
     const subject = logStudyTime(pomo.focus);

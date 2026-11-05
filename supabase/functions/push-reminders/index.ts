@@ -6,6 +6,9 @@
 //   unsubscribe  -> ลบอุปกรณ์ { endpoint }
 //   test         -> ส่งแจ้งเตือนทดสอบไปทุกอุปกรณ์ของผู้ใช้ที่ล็อกอิน
 //   run          -> (pg_cron เรียกทุกนาที ต้องมี header x-cron-secret) เช็กแล้วส่งแจ้งเตือนที่ถึงเวลา
+//   schedule-timer -> นัดแจ้งเตือนตอน Pomodoro หมดเวลา { fireAt, title, body } (1 นัดต่อผู้ใช้)
+//   cancel-timer   -> ยกเลิกนัดของ Pomodoro
+//   run-scheduled  -> (pg_cron เรียกทุก 10 วินาทีเมื่อมีนัดถึงเวลา ต้องมี x-cron-secret) ส่งแจ้งเตือนที่นัดไว้
 //
 // ข้อมูลตาราง/งาน/วันสอบอ่านจาก public.user_data (ข้อมูลที่แอปซิงก์ขึ้นมา)
 import postgres from 'npm:postgres@3.4.4';
@@ -251,6 +254,40 @@ Deno.serve(async (req) => {
       case 'run': {
         if (req.headers.get('x-cron-secret') !== cfg.cron_secret) return json({ error: 'forbidden' }, 403);
         return json(await runReminders(body.dry === true));
+      }
+
+      case 'run-scheduled': {
+        if (req.headers.get('x-cron-secret') !== cfg.cron_secret) return json({ error: 'forbidden' }, 403);
+        // ลบแล้วคืนค่าในคำสั่งเดียว กันไม่ให้ส่งซ้ำถ้ามีสองรอบทำงานพร้อมกัน
+        const due = await sql<{ user_id: string; title: string; body: string }[]>`
+          delete from private.push_scheduled where fire_at <= now() returning user_id, title, body`;
+        let sent = 0;
+        for (const d of due) {
+          const subs = await sql<Sub[]>`select endpoint, p256dh, auth from private.push_subscriptions where user_id = ${d.user_id}`;
+          for (const s of subs) if ((await sendTo(s, { title: d.title, body: d.body, tag: 'studyflow-pomodoro', url: './' })).ok) sent++;
+        }
+        return json({ due: due.length, sent });
+      }
+
+      case 'schedule-timer': {
+        const user = await userFromRequest(req);
+        if (!user) return json({ error: 'not signed in' }, 401);
+        const fireAt = new Date(String(body.fireAt || ''));
+        const ms = fireAt.getTime() - Date.now();
+        if (!Number.isFinite(ms) || ms < -60_000 || ms > 4 * 3600_000) return json({ error: 'invalid fireAt' }, 400);
+        const title = String(body.title || 'หมดเวลา ⏰').slice(0, 120);
+        const text = String(body.body || '').slice(0, 200);
+        await sql`insert into private.push_scheduled (user_id, kind, fire_at, title, body)
+                  values (${user.id}, 'timer', ${fireAt}, ${title}, ${text})
+                  on conflict (user_id, kind) do update set fire_at = excluded.fire_at, title = excluded.title, body = excluded.body`;
+        return json({ ok: true });
+      }
+
+      case 'cancel-timer': {
+        const user = await userFromRequest(req);
+        if (!user) return json({ error: 'not signed in' }, 401);
+        await sql`delete from private.push_scheduled where user_id = ${user.id} and kind = 'timer'`;
+        return json({ ok: true });
       }
 
       case 'subscribe': {

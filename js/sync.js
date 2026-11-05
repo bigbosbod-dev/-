@@ -457,6 +457,16 @@ async function currentPushSubscription() {
   return reg ? reg.pushManager.getSubscription() : null;
 }
 
+// ให้เซิร์ฟเวอร์ส่งแจ้งเตือนตอน Pomodoro หมดเวลา (ทำงานแม้ปิดจอ) ต้องล็อกอินและเปิดแจ้งเตือนแม้ปิดแอปไว้
+window.timerPush = async (action, payload = {}) => {
+  if (!sb || !currentUser || getStorage(PUSH_FLAG, false) !== true) return;
+  try {
+    await callPushFunction({ action: action === 'schedule' ? 'schedule-timer' : 'cancel-timer', ...payload });
+  } catch (err) {
+    console.warn('timer push', err);
+  }
+};
+
 async function callPushFunction(body) {
   const { data, error } = await sb.functions.invoke('push-reminders', { body });
   if (error) throw error;
